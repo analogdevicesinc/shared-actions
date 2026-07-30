@@ -7,11 +7,6 @@ workflows for the **analogdevicesinc** organization. It streamlines common
 CI/CD tasks, enforces organizational standards, and reduces duplication across
 projects.
 
-It is handled in much the same way as
-[adi-innersource/shared-actions](https://github.com/adi-innersource/shared-actions) —
-a curated set of versioned, reusable building blocks — but this repository
-serves the **analogdevicesinc** organization rather than adi-innersource.
-
 ## Getting started
 
 Reference a shared action from your workflow using the full repository path and
