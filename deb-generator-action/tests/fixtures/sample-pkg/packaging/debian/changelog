@@ -1,0 +1,5 @@
+sample-pkg (@VERSION@) UNRELEASED; urgency=low
+
+  * CI release.
+
+ -- ADI CI <ci@analog.com>  @DATE@

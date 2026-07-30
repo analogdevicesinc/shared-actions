@@ -1,0 +1,10 @@
+# This is a CODEOWNERS file.
+# Lines starting with '#' are comments.
+# Each line is a file pattern followed by one or more owners.
+# More general documentation about code owners can be found here:
+# https://docs.github.com/en/enterprise-cloud@latest/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# CODEOWNERS file format: <pattern> <GitHub team(s)>
+
+# Specify owners for all files
+*       @bancsorin10

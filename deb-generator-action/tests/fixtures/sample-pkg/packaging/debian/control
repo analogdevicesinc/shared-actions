@@ -1,0 +1,14 @@
+Source: sample-pkg
+Section: utils
+Priority: optional
+Maintainer: ADI CI <ci@analog.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: sample-pkg
+Architecture: @ARCHITECTURE@
+Depends: ${misc:Depends}
+Description: Sample package used for deb-generator-action tests
+ A minimal package with no compiled artifacts, used to exercise the
+ build pipeline in CI.

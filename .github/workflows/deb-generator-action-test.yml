@@ -1,0 +1,60 @@
+name: Test deb-generator-action
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'deb-generator-action/**'
+      - '.github/workflows/deb-generator-action-test.yml'
+  pull_request:
+    paths:
+      - 'deb-generator-action/**'
+      - '.github/workflows/deb-generator-action-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Fast unit tests — validation and template checks, no network needed.
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bats
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq bats
+
+      - name: Run bats unit tests
+        run: bats deb-generator-action/tests/build-deb.bats
+
+  # Full build of the sample fixture through the composite action.
+  # Exercises apt, mk-build-deps, the ADI feed, and debuild end-to-end.
+  # May fail in restricted network environments — that is acceptable.
+  sample-build:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: reusable-workflows
+
+      - name: Build the sample fixture
+        uses: ./reusable-workflows/deb-generator-action
+        with:
+          version: 1.0.0
+          working-directory: reusable-workflows/deb-generator-action/tests/fixtures/sample-pkg
+
+      - name: Verify a .deb was produced
+        run: |
+          ls -la "${{ github.workspace }}/artifacts/"
+          test -n "$(ls ${{ github.workspace }}/artifacts/*.deb 2>/dev/null)"
+
+      - name: Upload sample artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-pkg-deb
+          path: ${{ github.workspace }}/artifacts/*
+          if-no-files-found: warn
