@@ -1,0 +1,31 @@
+name: Test check-clang-format action
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'check-clang-format/**'
+      - '.github/workflows/check-clang-format-test.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'check-clang-format/**'
+      - '.github/workflows/check-clang-format-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-clang-format-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Check clang format
+        continue-on-error: true   # used for testing only
+        uses: ./check-clang-format
+        with:
+          source: ${{ github.workspace }}/check-clang-format/tests
