@@ -1,0 +1,50 @@
+name: Build and deploy doxygen for opensource repos
+
+description: 
+  Action to to build and deploy doxygen files to opensourse repos
+
+inputs:
+  work_dir:
+    desciption:
+      Path to the root working directory containing documentation path.
+    required: false
+    default: .
+  docs_dir:
+    desciption:
+      Path to the documentation directory.
+    required: true
+  version:
+    description:
+      Doxygen tool version
+    required: false
+    default: 1.13.2
+  args:
+    description:
+      Doxygen build args
+    required: false
+    default: ''
+  publish:
+    desciption:
+      Condition to publish the docs to github pages or not
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Install prerequisites
+      shell: sh
+      run: |
+        ${{ github.action_path }}/bin/install-deps.sh
+      env:
+        WORK_DIR: ${{ inputs.work_dir }}
+        VERSION: ${{ inputs.version }}
+    - name: Deploy doxygen
+      shell: sh
+      run: |
+        ${{ github.action_path }}/bin/deploy-doxygen.sh
+      env:
+        WORK_DIR: ${{ inputs.work_dir }}
+        DOCS_DIR: ${{ inputs.docs_dir }}
+        ARGS: ${{ inputs.args }}
+        PUBLISH: ${{ inputs.publish }}
