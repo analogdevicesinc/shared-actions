@@ -1,0 +1,30 @@
+name: Test check-cpp-format action
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'check-cpp-format/**'
+      - '.github/workflows/check-cpp-format-test.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'check-cpp-format/**'
+      - '.github/workflows/check-cpp-format-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-cpp-format-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Check cpp format
+        uses: ./check-cpp-format
+        with:
+          paths: ${{ github.workspace }}/check-cpp-format/tests/apps
