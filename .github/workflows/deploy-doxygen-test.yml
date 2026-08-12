@@ -1,0 +1,39 @@
+name: Test deploy-docs action
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'deploy-doxygen/**'
+      - '.github/workflows/deploy-doxygen-test.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'deploy-doxygen/**'
+      - '.github/workflows/deploy-doxygen-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-doxygen-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Deploy doxygen
+        uses: ./deploy-doxygen
+        with:
+          work_dir: ${{ github.workspace }}/deploy-doxygen/tests
+          docs_dir: ${{ github.workspace }}/deploy-doxygen/tests/doc
+          args: evalkit-doc
+          version: '1.13.2'
+          publish: false
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ github.workspace }}/deploy-doxygen/tests
+          name: deploys-doxygen-test

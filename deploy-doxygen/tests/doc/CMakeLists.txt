@@ -1,0 +1,39 @@
+cmake_minimum_required(VERSION 3.0)
+project(evalkit-doc)
+
+find_program(DOXYGEN_PATH doxygen)
+if (NOT DOXYGEN_PATH)
+    message(FATAL_ERROR "doxygen not found!")
+endif()
+
+######################### This script variables ###############################
+set(SOURCES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../libaditof/sdk/include/aditof)
+set(DOXY_WORKING_DIR ${CMAKE_CURRENT_BINARY_DIR}/doxygen_doc)
+
+############################# Doc variables ###################################
+set(PROJECT_NAME "Time-of-Flight-SDK")
+# Document only public API headers (matching libaditof standalone)
+set(DOCUMENTED_FILES_LIST
+    "${SOURCES_DIR}/frame.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mainpage.dox"
+)
+string(REPLACE ";" " " DOCUMENTED_FILES "${DOCUMENTED_FILES_LIST}")
+
+################# Generate Doxygen configuration file #########################
+configure_file(
+    sdk.doxy.in
+    ${DOXY_WORKING_DIR}/sdk-api.doxy
+)
+
+################# Custom target to build Doxygen doc ##########################
+add_custom_target(evalkit-doc ALL
+    COMMAND ${DOXYGEN_PATH} sdk-api.doxy
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${DOXY_WORKING_DIR}/html
+    WORKING_DIRECTORY ${DOXY_WORKING_DIR}
+)
+
+############### Install the documentation in the system #######################
+include(GNUInstallDirs)
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/doxygen_doc/html/ DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+
