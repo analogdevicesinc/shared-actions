@@ -82,7 +82,7 @@ echo "==> Adding ADI package repository..."
 curl -1sLf 'https://packages.analog.com/public/setup.deb.sh' | ${SUDO:+sudo -E} bash
 # Uncomment the line below to also add the adi/kuiper feed if packages
 # are missing from adi/external (some may only be published to kuiper)
-# curl -1sLf 'https://packages.analog.com/kuiper/setup.deb.sh' | ${SUDO:+sudo -E} bash
+curl -1sLf 'https://packages.analog.com/kuiper/setup.deb.sh' | ${SUDO:+sudo -E} bash
 $SUDO apt-get update -qq
 
 # 9. Assemble an isolated build tree so the caller's checked-out workspace is
