@@ -136,7 +136,13 @@ echo "    Created ${APP_NAME}_${VERSION}.orig.tar.gz"
 popd > /dev/null
 
 # 13. Build
-echo "==> Building package..."
+# nostrip disables dh_strip so debug symbols stay in the main .deb instead of
+# being stripped out. Without it, dh_strip strips the binaries and (under
+# compat 13) moves the symbols into a separate auto-generated -dbgsym .ddeb
+# that the collection step below does not pick up, discarding them. Appended so
+# any DEB_BUILD_OPTIONS already set by the caller is preserved.
+export DEB_BUILD_OPTIONS="${DEB_BUILD_OPTIONS:+$DEB_BUILD_OPTIONS }nostrip"
+echo "==> Building package... (DEB_BUILD_OPTIONS=$DEB_BUILD_OPTIONS)"
 debuild -us -uc
 
 # 14. Collect artifacts into the caller's workspace
