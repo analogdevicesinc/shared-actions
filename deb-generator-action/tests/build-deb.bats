@@ -53,6 +53,13 @@ teardown() {
   [[ "${output}" == *"packaging/debian/ directory not found"* ]]
 }
 
+@test "honors a custom CONTROL_PATH in the not-found error" {
+  run env VERSION=1.0.0 WORKING_DIRECTORY="${WORKDIR}/sample-pkg" \
+    CONTROL_PATH="debian/custom" bash "${SCRIPT}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"debian/custom/ directory not found"* ]]
+}
+
 @test "fails when working directory does not exist" {
   run env VERSION=1.0.0 WORKING_DIRECTORY="${WORKDIR}/does-not-exist" bash "${SCRIPT}"
   [ "${status}" -ne 0 ]

@@ -40,6 +40,7 @@ other files remain untouched for later workflow steps.
 |-------|----------|---------|-------------|
 | `version` | yes | — | Version string, e.g. `1.2.3` |
 | `working-directory` | no | `.` | Path to the source (relative to `$GITHUB_WORKSPACE`) |
+| `control-path` | no | `packaging/debian` | Path to the debian control files/templates (relative to `working-directory`) |
 | `ignore-path` | no | `''` | Newline-separated paths to exclude from the orig tarball (beyond `.git` and `debian`) |
 
 ## Outputs
@@ -83,8 +84,8 @@ other files remain untouched for later workflow steps.
 
 The composite action runs on the host runner. For arm64/armhf builds, run the
 `build-deb.sh` script directly inside a Docker container (it accepts the same
-values via the `VERSION`, `WORKING_DIRECTORY`, and `IGNORE_PATH` environment
-variables):
+values via the `VERSION`, `WORKING_DIRECTORY`, `CONTROL_PATH`, and `IGNORE_PATH`
+environment variables):
 
 ```yaml
 - name: Build (arm64)

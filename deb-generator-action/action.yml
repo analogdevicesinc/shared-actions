@@ -27,6 +27,10 @@ inputs:
     description: 'Path to source code (relative to $GITHUB_WORKSPACE)'
     required: false
     default: '.'
+  control-path:
+    description: 'Path to the debian control files/templates (relative to working-directory)'
+    required: false
+    default: 'packaging/debian'
   ignore-path:
     description: 'Newline-separated paths to exclude from the orig tarball (beyond .git and debian)'
     required: false
@@ -48,6 +52,7 @@ runs:
       env:
         VERSION: ${{ inputs.version }}
         WORKING_DIRECTORY: ${{ github.workspace }}/${{ inputs.working-directory }}
+        CONTROL_PATH: ${{ inputs.control-path }}
         IGNORE_PATH: ${{ inputs.ignore-path }}
         ACTION_PATH: ${{ github.action_path }}
       run: |

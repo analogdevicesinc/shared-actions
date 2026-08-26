@@ -16,6 +16,9 @@
 set -eo pipefail
 
 WORKING_DIRECTORY="${WORKING_DIRECTORY:-.}"
+# Directory (relative to WORKING_DIRECTORY) holding the debian control files and
+# templates (changelog, control, rules, ...).
+CONTROL_PATH="${CONTROL_PATH:-packaging/debian}"
 
 # Where built artifacts are collected. GITHUB_WORKSPACE is set in CI; fall back
 # to the directory the script was invoked from (captured before any cd).
@@ -41,16 +44,16 @@ if [ ! -d "$WORKING_DIRECTORY" ]; then
 fi
 cd "$WORKING_DIRECTORY"
 
-# 3. Validate packaging/debian exists
-if [ ! -d "packaging/debian" ]; then
-  echo "ERROR: packaging/debian/ directory not found in $WORKING_DIRECTORY" >&2
+# 3. Validate the control directory exists
+if [ ! -d "$CONTROL_PATH" ]; then
+  echo "ERROR: $CONTROL_PATH/ directory not found in $WORKING_DIRECTORY" >&2
   exit 1
 fi
 
-# 4. Read package name from debian/control
-APP_NAME=$(grep -m1 '^Source:' packaging/debian/control | awk '{print $2}')
+# 4. Read package name from the control file
+APP_NAME=$(grep -m1 '^Source:' "$CONTROL_PATH/control" | awk '{print $2}')
 if [ -z "$APP_NAME" ]; then
-  echo "ERROR: Could not read Source: from packaging/debian/control" >&2
+  echo "ERROR: Could not read Source: from $CONTROL_PATH/control" >&2
   exit 1
 fi
 echo "==> Package: $APP_NAME  Version: $VERSION"
@@ -91,7 +94,9 @@ echo "==> Copying source to isolated build tree: $src_dir"
 
 # rsync copies the source, excluding .git, the debian template dir, and any
 # IGNORE_PATH entries. Using an array keeps paths with spaces/globs intact.
-rsync_excludes=(--exclude='.git' --exclude='packaging/debian')
+# The control path is anchored to the transfer root with a leading '/' so a
+# single-component path (e.g. "debian") does not also match nested dirs.
+rsync_excludes=(--exclude='.git' --exclude="/$CONTROL_PATH")
 if [ -n "$IGNORE_PATH" ]; then
   while IFS= read -r path; do
     [ -z "$path" ] && continue
@@ -102,8 +107,8 @@ mkdir -p "$src_dir"
 rsync -a "${rsync_excludes[@]}" ./ "$src_dir/"
 
 # Place the debian template dir at debian/ in the build tree (it was excluded
-# from the rsync above so it does not also appear under packaging/).
-cp -r packaging/debian "$src_dir/debian"
+# from the rsync above so it does not also appear under its original path).
+cp -r "$CONTROL_PATH" "$src_dir/debian"
 
 cd "$src_dir"
 
