@@ -1,0 +1,57 @@
+##
+# Copyright (c) 2025 Analog Devices, Inc. All Rights Reserved.
+# This software is proprietary and confidential to Analog Devices, Inc. and its licensors.
+##
+
+name: 'PyPI build'
+description: 'Build Python wheel and sdist from cmake-templated bindings'
+
+inputs:
+  cmake-options:
+    description: CMake configure flags
+    required: false
+    default: '-DPYTHON_BINDINGS=ON'
+  apt-packages:
+    description: Space-separated apt packages for build dependencies
+    required: false
+    default: 'cmake'
+  bindings-path:
+    description: Path to Python bindings relative to the build directory
+    required: false
+    default: 'bindings/python'
+  artifact-name:
+    description: Name for the uploaded artifact
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ${{ inputs.apt-packages }}
+        pip install build setuptools
+
+    - name: Configure and build
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p build && cd build
+        cmake .. ${{ inputs.cmake-options }}
+        make
+        export DESTDIR="${{ github.workspace }}/_install"
+        make DESTDIR="${DESTDIR}" install
+        export LD_LIBRARY_PATH="${DESTDIR}/usr/local/lib:${LD_LIBRARY_PATH:-}"
+        cd ${{ inputs.bindings-path }}
+        python -m build
+
+    - name: Upload dist
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: build/${{ inputs.bindings-path }}/dist/*

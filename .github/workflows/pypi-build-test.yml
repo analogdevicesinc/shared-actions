@@ -1,0 +1,56 @@
+name: Test pypi-build action
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'pypi-build/**'
+      - '.github/workflows/pypi-build-test.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'pypi-build/**'
+      - '.github/workflows/pypi-build-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pypi-build-test:
+    runs-on: ubuntu-latest
+    continue-on-error: true   # used for testing only
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: reusable-workflows
+
+      - uses: actions/checkout@v5
+        with:
+          repository: analogdevicesinc/libiio
+          path: libiio
+
+      - name: Set up test project
+        run: cp -a libiio/. .
+
+      - name: Build Python package
+        uses: ./reusable-workflows/pypi-build
+        with:
+          cmake-options: >-
+            -DWITH_USB_BACKEND=OFF
+            -DWITH_SERIAL_BACKEND=OFF
+            -DWITH_ZSTD=OFF
+            -DWITH_IIOD=OFF
+            -DWITH_UTILS=OFF
+            -DWITH_EXAMPLES=OFF
+          apt-packages: cmake libxml2-dev
+          bindings-path: ../bindings/python
+          artifact-name: pylibiio-dist
+
+      - name: Verify dist artifacts
+        run: |
+          ls -la bindings/python/dist/
+          test -n "$(ls bindings/python/dist/*.whl 2>/dev/null)"
+          test -n "$(ls bindings/python/dist/*.tar.gz 2>/dev/null)"
