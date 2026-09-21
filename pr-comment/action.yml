@@ -1,0 +1,67 @@
+name: Upsert PR comment
+description: >
+  Create, update, or remove a single "marked" comment on a pull request
+  conversation. Idempotent: re-running edits the same comment in place and
+  collapses any duplicates, so a PR never accumulates repeated bot comments.
+
+inputs:
+  marker:
+    description: >
+      Unique key identifying this comment. Stored as a hidden HTML marker
+      (<!-- pr-comment:<marker> -->) so later runs find and replace it instead
+      of posting a new one. Use a distinct value per bot/report.
+    required: true
+  body:
+    description: >
+      Markdown body of the comment. Empty (and no body-file) means "ensure the
+      comment is absent": any existing marked comment is deleted.
+    required: false
+    default: ""
+  body-file:
+    description: >
+      Path to a file holding the Markdown body. Takes precedence over 'body'
+      when set. A missing or empty file also means "ensure absent".
+    required: false
+    default: ""
+  pr-number:
+    description: "Pull request number (defaults to the triggering PR)."
+    required: false
+    default: ${{ github.event.pull_request.number }}
+  repository:
+    description: "owner/name of the repository."
+    required: false
+    default: ${{ github.repository }}
+  token:
+    description: "Token with 'pull-requests: write' permission."
+    required: false
+    default: ${{ github.token }}
+  fail-on-error:
+    description: >
+      Fail the step on an API error (e.g. a read-only token on a fork PR).
+      Default false: log a warning and succeed, so comment posting never breaks
+      the build.
+    required: false
+    default: "false"
+
+outputs:
+  comment-id:
+    description: "ID of the created/updated comment (empty when deleted or none)."
+    value: ${{ steps.upsert.outputs.comment-id }}
+  result:
+    description: "One of: created | updated | deleted | noop."
+    value: ${{ steps.upsert.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    - id: upsert
+      shell: bash
+      run: ${{ github.action_path }}/bin/upsert-comment.sh
+      env:
+        MARKER: ${{ inputs.marker }}
+        BODY: ${{ inputs.body }}
+        BODY_FILE: ${{ inputs.body-file }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        REPO: ${{ inputs.repository }}
+        GH_TOKEN: ${{ inputs.token }}
+        FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
