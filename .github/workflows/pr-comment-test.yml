@@ -1,0 +1,31 @@
+name: Test pr-comment action
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'pr-comment/**'
+      - '.github/workflows/pr-comment-test.yml'
+  pull_request:
+    paths:
+      - 'pr-comment/**'
+      - '.github/workflows/pr-comment-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Fast unit tests: a stubbed curl exercises the create/update/self-heal/
+  # delete/noop paths with no network.
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bats
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq bats
+
+      - name: Run bats unit tests
+        run: bats pr-comment/tests/upsert-comment.bats
