@@ -33,7 +33,15 @@ jobs:
           path: libiio
 
       - name: Set up test project
-        run: cp -a libiio/. .
+        run: |
+          cp -a libiio/. .
+          mkdir -p bindings/python/tests
+          cat > bindings/python/tests/test_smoke.py << 'PYEOF'
+          import iio
+
+          def test_import():
+              assert iio is not None
+          PYEOF
 
       - name: Build Python package
         uses: ./reusable-workflows/pypi-build
@@ -41,12 +49,14 @@ jobs:
           cmake-options: >-
             -DWITH_USB_BACKEND=OFF
             -DWITH_SERIAL_BACKEND=OFF
+            -DWITH_NETWORK_BACKEND=OFF
             -DWITH_ZSTD=OFF
             -DWITH_IIOD=OFF
             -DWITH_UTILS=OFF
             -DWITH_EXAMPLES=OFF
           apt-packages: cmake libxml2-dev
           bindings-path: ../bindings/python
+          run-tests: 'true'
           artifact-name: pylibiio-dist
 
       - name: Verify dist artifacts

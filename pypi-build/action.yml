@@ -19,6 +19,14 @@ inputs:
     description: Path to Python bindings relative to the build directory
     required: false
     default: 'bindings/python'
+  run-tests:
+    description: Run pytest if a test directory exists under the bindings path
+    required: false
+    default: 'false'
+  pytest-args:
+    description: Extra arguments passed to pytest
+    required: false
+    default: '-vs'
   artifact-name:
     description: Name for the uploaded artifact
     required: true
@@ -38,6 +46,7 @@ runs:
         pip install build setuptools
 
     - name: Configure and build
+      id: build
       shell: bash
       run: |
         set -euo pipefail
@@ -46,12 +55,31 @@ runs:
         make
         export DESTDIR="${{ github.workspace }}/_install"
         make DESTDIR="${DESTDIR}" install
-        export LD_LIBRARY_PATH="${DESTDIR}/usr/local/lib:${LD_LIBRARY_PATH:-}"
+        export LD_LIBRARY_PATH="$(find "${DESTDIR}" -name '*.so' -printf '%h\n' 2>/dev/null | sort -u | paste -sd:)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         cd ${{ inputs.bindings-path }}
         python -m build
+        echo "dist-path=$(pwd)/dist" >> "$GITHUB_OUTPUT"
+
+    - name: Run tests
+      if: inputs.run-tests == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        export DESTDIR="${{ github.workspace }}/_install"
+        export LD_LIBRARY_PATH="$(find "${DESTDIR}" -name '*.so' -printf '%h\n' 2>/dev/null | sort -u | paste -sd:)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        cd build/${{ inputs.bindings-path }}
+        if [[ -d test || -d tests ]]; then
+          pip install pytest
+          if [[ -f requirements_dev.txt ]]; then
+            pip install -r requirements_dev.txt
+          fi
+          python -m pytest ${{ inputs.pytest-args }}
+        else
+          echo "No test directory found, skipping"
+        fi
 
     - name: Upload dist
       uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.artifact-name }}
-        path: build/${{ inputs.bindings-path }}/dist/*
+        path: ${{ steps.build.outputs.dist-path }}/*
