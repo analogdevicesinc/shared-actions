@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Analog Devices, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+name: Test spdx-header-check action
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'spdx-header-check/**'
+      - '.github/workflows/spdx-header-check-test.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'spdx-header-check/**'
+      - '.github/workflows/spdx-header-check-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bats-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install bats
+        run: npm install --save-dev bats
+
+      - name: Run bats tests
+        run: npx bats spdx-header-check/tests/check-spdx.bats
