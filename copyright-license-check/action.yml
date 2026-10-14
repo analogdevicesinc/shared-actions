@@ -1,0 +1,165 @@
+# Copyright (c) 2026 Analog Devices, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+name: 'Copyright & License Check'
+description: 'Scans source files for copyright and license headers, and validates copyright years against Git history.'
+
+inputs:
+  scan-path:
+    description: 'Root path to scan for source files'
+    required: false
+    default: '.'
+  file-extensions:
+    description: 'Comma-separated list of file extensions to scan (without dots)'
+    required: false
+    default: >-
+      js,ts,
+      py,
+      java,
+      c,h,cpp,hpp,
+      cs,
+      go,
+      rs,
+      rb,
+      php,
+      sh,
+      ps1,
+  exclude-dirs:
+    description: 'Comma-separated list of additional directories to exclude. node_modules, dist, build, and .git are always excluded.'
+    required: false
+    default: ''
+  ignore-file:
+    description: 'Path to a file containing patterns of files to ignore (like .gitignore). One path or glob per line.'
+    required: false
+    default: '.copyrightignore'
+  fail-on-missing:
+    description: 'Fail the action if files are missing or have incorrect copyright/license headers.'
+    type: boolean
+    required: false
+    default: true
+  summary-output:
+    description: 'Whether to output a GitHub Actions job summary'
+    type: boolean
+    required: false
+    default: true
+  full-scan:
+    description: 'Scan all files. When false, only scan changed files in PR.'
+    type: boolean
+    required: false
+    default: false
+  copyright-pattern:
+    description: >-
+      Perl-compatible regex to match the copyright line.
+      Default matches "Copyright (c) <year>" or "Copyright <year>" with optional year range.
+    required: false
+    default: 'Copyright\s*(?:©|\(c\)|)\s*(\d{4})\s*(?:[-,]\s*(\d{4}))?\s+.+'
+  license-pattern:
+    description: >-
+      Perl-compatible regex to match a license identifier in the file header.
+      Leave empty to skip license checking. Default matches SPDX-License-Identifier.
+    required: false
+    default: 'SPDX-License-Identifier:\s+\S+'
+  license-header-lines:
+    description: 'Number of lines from the top of each file to scan for the license identifier.'
+    required: false
+    default: '30'
+  valid-licenses:
+    description: >-
+      Comma-separated list of accepted license identifiers.
+      Leave empty to accept any identifier. Supports LicenseRef-* custom identifiers.
+      Merged with licenses from .copyright-config.yml if present.
+      Example: 'Apache-2.0,MIT,LicenseRef-ADI-Proprietary'
+    required: false
+    default: ''
+  copyright-config:
+    description: >-
+      Path to a YAML config file defining project-license and allowed-licenses.
+      See README for format. Leave empty to use defaults.
+    required: false
+    default: '.copyright-config.yml'
+
+outputs:
+  total-files-scanned:
+    description: 'Total number of source files scanned'
+    value: ${{ steps.scan.outputs.total_scanned }}
+  files-missing-copyright:
+    description: 'Number of files missing copyright header'
+    value: ${{ steps.scan.outputs.missing_count }}
+  files-wrong-years:
+    description: 'Number of files with incorrect copyright years'
+    value: ${{ steps.scan.outputs.wrong_years_count }}
+  files-missing-license:
+    description: 'Number of files missing SPDX-License-Identifier'
+    value: ${{ steps.scan.outputs.missing_license_count }}
+  files-invalid-license:
+    description: 'Number of files with a license identifier not in the valid-licenses list'
+    value: ${{ steps.scan.outputs.invalid_license_count }}
+  missing-files-list:
+    description: 'List of files missing copyright header'
+    value: ${{ steps.scan.outputs.missing_files }}
+  wrong-years-list:
+    description: 'List of files with incorrect copyright years'
+    value: ${{ steps.scan.outputs.wrong_years_files }}
+  missing-license-list:
+    description: 'List of files missing SPDX-License-Identifier'
+    value: ${{ steps.scan.outputs.missing_license_files }}
+  invalid-license-list:
+    description: 'List of files with invalid license identifiers'
+    value: ${{ steps.scan.outputs.invalid_license_files }}
+  ignored-files-list:
+    description: 'Newline-separated list of ignored files'
+    value: ${{ steps.scan.outputs.ignored_files }}
+  detected-license:
+    description: 'SPDX identifier auto-detected from the repo LICENSE file (empty if not detected)'
+    value: ${{ steps.scan.outputs.detected_license }}
+  passed:
+    description: "'true' if all scanned files have valid copyright/license headers"
+    value: ${{ steps.scan.outputs.passed }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Resolve scan mode
+      id: resolve-mode
+      shell: bash
+      run: |
+        if [ "${{ inputs.full-scan }}" == "true" ]; then
+          echo "mode=full" >> "${GITHUB_OUTPUT}"
+        elif [ "${{ github.event_name }}" == "pull_request" ]; then
+          echo "mode=changed" >> "${GITHUB_OUTPUT}"
+        else
+          echo "mode=skip" >> "${GITHUB_OUTPUT}"
+          echo "::notice::Skipping copyright/license check (event: ${{ github.event_name }}). Use full-scan: true or trigger via pull_request."
+        fi
+    - name: Get changed files
+      if: steps.resolve-mode.outputs.mode == 'changed'
+      id: changed-files
+      shell: bash
+      run: |
+        git fetch origin ${{ github.base_ref }}
+        CHANGED_FILES=$(git diff --name-only --diff-filter=d origin/${{ github.base_ref }}...HEAD)
+        DELIMITER="files_GHEOF_$$"
+        echo "files<<${DELIMITER}" >> "${GITHUB_OUTPUT}"
+        echo "${CHANGED_FILES}" >> "${GITHUB_OUTPUT}"
+        echo "${DELIMITER}" >> "${GITHUB_OUTPUT}"
+    - name: Scan for copyright/license headers
+      if: steps.resolve-mode.outputs.mode != 'skip'
+      id: scan
+      shell: bash
+      env:
+        COPYRIGHT_PATTERN: ${{ inputs.copyright-pattern }}
+        LICENSE_PATTERN: ${{ inputs.license-pattern }}
+        INPUT_SCAN_PATH: ${{ inputs.scan-path }}
+        INPUT_FILE_EXTENSIONS: ${{ inputs.file-extensions }}
+        INPUT_EXCLUDE_DIRS: ${{ inputs.exclude-dirs }}
+        INPUT_IGNORE_FILE: ${{ inputs.ignore-file }}
+        INPUT_FAIL_ON_MISSING: ${{ inputs.fail-on-missing }}
+        INPUT_SUMMARY_OUTPUT: ${{ inputs.summary-output }}
+        INPUT_FULL_SCAN: ${{ steps.resolve-mode.outputs.mode == 'full' }}
+        INPUT_LICENSE_HEADER_LINES: ${{ inputs.license-header-lines }}
+        INPUT_VALID_LICENSES: ${{ inputs.valid-licenses }}
+        INPUT_COPYRIGHT_CONFIG: ${{ inputs.copyright-config }}
+        CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
+      run: |
+        bash "${GITHUB_ACTION_PATH}/scripts/check-copyright-license.sh"
