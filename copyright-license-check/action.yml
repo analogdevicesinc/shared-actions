@@ -14,9 +14,9 @@ inputs:
     description: 'Comma-separated list of file extensions to scan (without dots)'
     required: false
     default: >-
-      js,ts,
+      js,ts,jsx,tsx,
       py,
-      java,
+      java,kt,
       c,h,cpp,hpp,
       cs,
       go,
@@ -25,6 +25,14 @@ inputs:
       php,
       sh,
       ps1,
+      yml,yaml,
+      groovy,
+      tf,tfvars,
+      vhd,vhdl,
+      v,sv,
+      tcl,
+      sql,
+      scss,css,
   exclude-dirs:
     description: 'Comma-separated list of additional directories to exclude. node_modules, dist, build, and .git are always excluded.'
     required: false

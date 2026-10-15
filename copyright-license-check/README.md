@@ -237,9 +237,9 @@ third_party/
 
 The action scans the following file extensions by default:
 
-- **JavaScript/TypeScript**: js, ts
+- **JavaScript/TypeScript**: js, ts, jsx, tsx
 - **Python**: py
-- **Java**: java
+- **Java/Kotlin**: java, kt
 - **C/C++**: c, h, cpp, hpp
 - **C#**: cs
 - **Go**: go
@@ -248,6 +248,14 @@ The action scans the following file extensions by default:
 - **PHP**: php
 - **Shell**: sh
 - **PowerShell**: ps1
+- **YAML**: yml, yaml
+- **Groovy**: groovy
+- **Terraform**: tf, tfvars
+- **VHDL**: vhd, vhdl
+- **Verilog/SystemVerilog**: v, sv
+- **Tcl**: tcl
+- **SQL**: sql
+- **CSS**: scss, css
 
 ## Default Excludes
 
