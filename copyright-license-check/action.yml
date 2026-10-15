@@ -80,6 +80,14 @@ inputs:
       Example: 'Apache-2.0,MIT,LicenseRef-ADI-Proprietary'
     required: false
     default: ''
+  copyright-holder:
+    description: >-
+      Expected copyright holder string (e.g. 'Analog Devices').
+      When set, files with a copyright from a different holder emit a warning
+      instead of failing, and year validation is skipped for those files.
+      Leave empty to accept any copyright holder without warnings.
+    required: false
+    default: ''
   copyright-config:
     description: >-
       Path to a YAML config file defining project-license and allowed-licenses.
@@ -115,6 +123,12 @@ outputs:
   invalid-license-list:
     description: 'List of files with invalid license identifiers'
     value: ${{ steps.scan.outputs.invalid_license_files }}
+  files-third-party-copyright:
+    description: 'Number of files with a non-matching copyright holder'
+    value: ${{ steps.scan.outputs.third_party_count }}
+  third-party-copyright-list:
+    description: 'List of files with third-party copyright holders'
+    value: ${{ steps.scan.outputs.third_party_files }}
   ignored-files-list:
     description: 'Newline-separated list of ignored files'
     value: ${{ steps.scan.outputs.ignored_files }}
@@ -168,6 +182,7 @@ runs:
         INPUT_LICENSE_HEADER_LINES: ${{ inputs.license-header-lines }}
         INPUT_VALID_LICENSES: ${{ inputs.valid-licenses }}
         INPUT_COPYRIGHT_CONFIG: ${{ inputs.copyright-config }}
+        INPUT_COPYRIGHT_HOLDER: ${{ inputs.copyright-holder }}
         CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
       run: |
         bash "${GITHUB_ACTION_PATH}/scripts/check-copyright-license.sh"

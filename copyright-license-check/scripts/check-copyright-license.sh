@@ -36,6 +36,7 @@ SUMMARY_OUTPUT="${INPUT_SUMMARY_OUTPUT:-true}"
 IGNORE_FILE="${INPUT_IGNORE_FILE:-.copyrightignore}"
 FULL_SCAN="${INPUT_FULL_SCAN:-false}"
 CHANGED_FILES="${CHANGED_FILES:-}"
+COPYRIGHT_HOLDER="${INPUT_COPYRIGHT_HOLDER:-}"
 
 # Parse valid-licenses from action input
 VALID_LICENSES=()
@@ -507,6 +508,29 @@ validate_file_copyright() {
   [[ "${YEAR_OK}" == true ]] && return 0 || return 2  # Wrong years
 }
 
+# ── Copyright Holder Check ──────────────────────────────────────
+# Returns 0 if holder matches or no holder configured, 1 if third-party.
+
+THIRD_PARTY_COPYRIGHT_LINE=""
+
+check_copyright_holder() {
+  local file="$1"
+  THIRD_PARTY_COPYRIGHT_LINE=""
+
+  [[ -z "${COPYRIGHT_HOLDER}" ]] && return 0
+
+  local copyright_line
+  copyright_line="$(grep -oPi "${COPYRIGHT_PATTERN}" -- "${file}" 2>/dev/null | head -n 1)" || true
+  [[ -z "${copyright_line}" ]] && return 0  # no copyright = handled elsewhere
+
+  if printf '%s' "${copyright_line}" | grep -qi "${COPYRIGHT_HOLDER}"; then
+    return 0
+  fi
+
+  THIRD_PARTY_COPYRIGHT_LINE="${copyright_line}"
+  return 1
+}
+
 # ── License Validation ───────────────────────────────────────────
 
 LICENSE_VALIDATION_DETAIL=""
@@ -563,12 +587,16 @@ fi
 if [[ -n "${DETECTED_LICENSE}" ]]; then
   echo "Repo license:      ${DETECTED_LICENSE}"
 fi
+if [[ -n "${COPYRIGHT_HOLDER}" ]]; then
+  echo "Copyright holder:  ${COPYRIGHT_HOLDER}"
+fi
 echo ""
 
 MISSING_FILES=()
 WRONG_YEAR_DETAILS=()
 MISSING_LICENSE_FILES=()
 INVALID_LICENSE_DETAILS=()
+THIRD_PARTY_DETAILS=()
 PASSED_FILES=0
 
 for file in "${SOURCE_FILES[@]+"${SOURCE_FILES[@]}"}"; do
@@ -582,9 +610,21 @@ for file in "${SOURCE_FILES[@]+"${SOURCE_FILES[@]}"}"; do
     1) MISSING_FILES+=("${file}")
        log_warn "Missing copyright header: ${file}"
        file_has_error=true ;;
-    2) WRONG_YEAR_DETAILS+=("${file} → ${VALIDATION_DETAIL}")
-       log_warn "Wrong copyright years: ${file} (${VALIDATION_DETAIL})"
-       file_has_error=true ;;
+    0|2)
+       # Copyright exists -- check if it's from expected holder
+       holder_result=0
+       check_copyright_holder "${file}" || holder_result=$?
+       if (( holder_result != 0 )); then
+         # Third-party copyright -- warn, skip year validation
+         THIRD_PARTY_DETAILS+=("${file} → ${THIRD_PARTY_COPYRIGHT_LINE}")
+         log_warn "Third-party copyright: ${file} -- ${THIRD_PARTY_COPYRIGHT_LINE}"
+       elif (( copyright_result == 2 )); then
+         # Expected holder with wrong years -- error
+         WRONG_YEAR_DETAILS+=("${file} → ${VALIDATION_DETAIL}")
+         log_warn "Wrong copyright years: ${file} (${VALIDATION_DETAIL})"
+         file_has_error=true
+       fi
+       ;;
   esac
 
   # Check license (only if license-pattern is configured)
@@ -611,6 +651,7 @@ MISSING_COUNT="${#MISSING_FILES[@]}"
 WRONG_YEARS_COUNT="${#WRONG_YEAR_DETAILS[@]}"
 MISSING_LICENSE_COUNT="${#MISSING_LICENSE_FILES[@]}"
 INVALID_LICENSE_COUNT="${#INVALID_LICENSE_DETAILS[@]}"
+THIRD_PARTY_COUNT="${#THIRD_PARTY_DETAILS[@]}"
 TOTAL_ERRORS=$(( MISSING_COUNT + WRONG_YEARS_COUNT + MISSING_LICENSE_COUNT + INVALID_LICENSE_COUNT ))
 
 echo ""
@@ -620,6 +661,9 @@ echo "Wrong copyright years         : ${WRONG_YEARS_COUNT}"
 if [[ -n "${LICENSE_PATTERN}" ]]; then
   echo "Missing SPDX-License-Identifier: ${MISSING_LICENSE_COUNT}"
   echo "Invalid license identifier    : ${INVALID_LICENSE_COUNT}"
+fi
+if [[ -n "${COPYRIGHT_HOLDER}" ]]; then
+  echo "Third-party copyright (review): ${THIRD_PARTY_COUNT}"
 fi
 echo "Ignored                       : ${IGNORED_COUNT}"
 
@@ -642,12 +686,14 @@ write_multiline() {
   echo "missing_license_count=${MISSING_LICENSE_COUNT}"
   echo "invalid_license_count=${INVALID_LICENSE_COUNT}"
   echo "ignored_count=${IGNORED_COUNT}"
+  echo "third_party_count=${THIRD_PARTY_COUNT}"
   echo "detected_license=${DETECTED_LICENSE}"
   echo "passed=$([ "${TOTAL_ERRORS}" -eq 0 ] && echo true || echo false)"
   write_multiline missing_files          "${MISSING_FILES[@]+"${MISSING_FILES[@]}"}"
   write_multiline wrong_years_files      "${WRONG_YEAR_DETAILS[@]+"${WRONG_YEAR_DETAILS[@]}"}"
   write_multiline missing_license_files  "${MISSING_LICENSE_FILES[@]+"${MISSING_LICENSE_FILES[@]}"}"
   write_multiline invalid_license_files  "${INVALID_LICENSE_DETAILS[@]+"${INVALID_LICENSE_DETAILS[@]}"}"
+  write_multiline third_party_files      "${THIRD_PARTY_DETAILS[@]+"${THIRD_PARTY_DETAILS[@]}"}"
   write_multiline ignored_files          "${IGNORED_FILES[@]+"${IGNORED_FILES[@]}"}"
 } >> "${GITHUB_OUTPUT}"
 
@@ -706,6 +752,9 @@ if [[ "${SUMMARY_OUTPUT}" == "true" ]]; then
       echo "| Missing SPDX-License-Identifier | **${MISSING_LICENSE_COUNT}** |"
       echo "| Invalid license identifier | **${INVALID_LICENSE_COUNT}** |"
     fi
+    if [[ -n "${COPYRIGHT_HOLDER}" ]]; then
+      echo "| Third-party copyright (review) | **${THIRD_PARTY_COUNT}** |"
+    fi
     echo ""
 
     if (( MISSING_COUNT > 0 )); then
@@ -724,6 +773,10 @@ if [[ "${SUMMARY_OUTPUT}" == "true" ]]; then
       if (( INVALID_LICENSE_COUNT > 0 )); then
         summary_details_table "Files with invalid license identifier" "${INVALID_LICENSE_DETAILS[@]}"
       fi
+    fi
+
+    if (( THIRD_PARTY_COUNT > 0 )); then
+      summary_details_table "Files with third-party copyright (review needed)" "${THIRD_PARTY_DETAILS[@]}"
     fi
 
     summary_details_list "Ignored files" "${IGNORED_FILES[@]+"${IGNORED_FILES[@]}"}"
