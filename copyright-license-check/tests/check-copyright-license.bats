@@ -52,6 +52,7 @@ set_env() {
   export INPUT_LICENSE_HEADER_LINES=30
   export INPUT_VALID_LICENSES=""
   export INPUT_COPYRIGHT_CONFIG=".copyright-config.yml"
+  export INPUT_COPYRIGHT_HOLDER=""
   export GITHUB_OUTPUT="${REPO}/github_output.txt"
   export GITHUB_STEP_SUMMARY="${REPO}/github_summary.md"
   export CHANGED_FILES=""
@@ -622,4 +623,87 @@ print('hello')"
   run bash "${SCRIPT}"
   [[ "${status}" -eq 0 ]]
   [[ "$(get_output total_scanned)" == "0" ]]
+}
+
+# ── Third-party copyright holder detection ──────────────────────
+
+@test "third-party copyright warns but does not fail" {
+  setup_test_repo
+  set_env
+  export INPUT_COPYRIGHT_HOLDER="Analog Devices"
+
+  add_file "deps/lib.py" "# Copyright (C) 2014 Paul Cercueil <paul@example.com>
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+def helper(): pass"
+
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output third_party_count)" == "1" ]]
+  [[ "$(get_output passed)" == "true" ]]
+  [[ "${output}" == *"Third-party copyright"* ]]
+}
+
+@test "ADI copyright validates years normally when holder is set" {
+  setup_test_repo
+  set_env
+  export INPUT_COPYRIGHT_HOLDER="Analog Devices"
+
+  add_file "src/main.py" "# Copyright (c) 2020 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT
+print('v1')" "$(date +%Y)"
+
+  export INPUT_FAIL_ON_MISSING=false
+  run bash "${SCRIPT}"
+  [[ "$(get_output wrong_years_count)" == "1" ]]
+  [[ "$(get_output third_party_count)" == "0" ]]
+}
+
+@test "missing copyright still fails when holder is set" {
+  setup_test_repo
+  set_env
+  export INPUT_COPYRIGHT_HOLDER="Analog Devices"
+
+  add_file "src/main.py" "print('no header at all')"
+
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 1 ]]
+  [[ "$(get_output missing_count)" == "1" ]]
+}
+
+@test "no holder configured treats all copyrights equally" {
+  setup_test_repo
+  set_env
+  export INPUT_COPYRIGHT_HOLDER=""
+
+  add_file "deps/lib.py" "# Copyright (C) 2014 Paul Cercueil <paul@example.com>
+# SPDX-License-Identifier: MIT
+
+def helper(): pass" "2014"
+
+  export INPUT_FAIL_ON_MISSING=false
+  run bash "${SCRIPT}"
+  # With no holder set, third-party detection is disabled
+  [[ "$(get_output third_party_count)" == "0" ]]
+}
+
+@test "mixed ADI and third-party files reports correctly" {
+  setup_test_repo
+  set_env
+  export INPUT_COPYRIGHT_HOLDER="Analog Devices"
+  local year
+  year="$(date +%Y)"
+
+  add_file "src/main.py" "# Copyright (c) ${year} Analog Devices, Inc.
+# SPDX-License-Identifier: MIT
+print('adi code')"
+
+  add_file "deps/vendor.py" "# Copyright (c) 2018 Some Other Corp.
+# SPDX-License-Identifier: BSD-3-Clause
+print('vendored')" "2018"
+
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output third_party_count)" == "1" ]]
+  [[ "$(get_output passed)" == "true" ]]
 }

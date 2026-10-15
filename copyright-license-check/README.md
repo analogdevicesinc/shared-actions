@@ -127,6 +127,21 @@ The action auto-detects the repo license from the `LICENSE` file and merges it w
     file-extensions: 'py,sh,groovy,tcl,pl'
 ```
 
+### Third-Party Copyright Detection
+
+When your repo contains vendored or third-party files with non-ADI copyrights, set `copyright-holder` to warn about them instead of failing:
+
+```yaml
+- uses: analogdevicesinc/shared-actions/copyright-license-check@main
+  with:
+    copyright-holder: 'Analog Devices'
+```
+
+Files with a copyright from a different holder will:
+- Pass the check (the copyright exists)
+- Skip year validation (you don't control third-party years)
+- Appear as a warning in the job summary for manual review
+
 ### Copyright-Only (no license check)
 
 ```yaml
@@ -150,6 +165,7 @@ The action auto-detects the repo license from the `LICENSE` file and merges it w
 | `license-pattern` | Regex to match the license line. Empty to skip license checking | `SPDX-License-Identifier:\s+\S+` |
 | `license-header-lines` | Number of lines from top of file to scan for license | `30` |
 | `valid-licenses` | Comma-separated list of accepted SPDX identifiers. Merged with `.copyright-config.yml`. Empty to accept any | `''` |
+| `copyright-holder` | Expected copyright holder (e.g. `Analog Devices`). Files with a different holder warn instead of fail. Empty to skip | `''` |
 | `copyright-config` | Path to YAML config file defining project-license and allowed-licenses | `.copyright-config.yml` |
 
 ## Outputs
@@ -165,6 +181,8 @@ The action auto-detects the repo license from the `LICENSE` file and merges it w
 | `wrong-years-list` | Newline-separated list of files with wrong years |
 | `missing-license-list` | Newline-separated list of files missing license |
 | `invalid-license-list` | Newline-separated list of files with invalid license |
+| `files-third-party-copyright` | Number of files with a non-matching copyright holder |
+| `third-party-copyright-list` | Newline-separated list of files with third-party copyright holders |
 | `ignored-files-list` | Newline-separated list of ignored files |
 | `detected-license` | SPDX identifier auto-detected from the repo LICENSE file (empty if not detected) |
 | `passed` | `true` if all scanned files have valid copyright/license headers |
