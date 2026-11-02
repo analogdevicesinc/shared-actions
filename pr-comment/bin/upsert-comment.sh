@@ -62,6 +62,27 @@ fail() {
 [ -n "${GH_TOKEN:-}" ] || fail "no token provided"
 [ -n "${REPO:-}" ] || fail "no repository provided"
 [ -n "${PR_NUMBER:-}" ] || fail "no pull-request number (not a PR context?)"
+command -v curl > /dev/null || fail "curl not found on the runner"
+
+# JSON helpers: jq when present, else python3 (self-hosted runners often lack
+# jq). Each reads the JSON document on stdin.
+if command -v jq > /dev/null; then
+  json_marked_ids() { jq -r --arg m "$1" '.[]? | select(.body != null and (.body | contains($m))) | .id'; }
+  json_length()     { jq 'length'; }
+  json_id()         { jq -r '.id'; }
+  json_body()       { jq -n --arg b "$1" '{body: $b}'; }
+elif command -v python3 > /dev/null; then
+  json_marked_ids() {
+    python3 -c 'import json,sys
+for c in json.load(sys.stdin) or []:
+    if isinstance(c.get("body"), str) and sys.argv[1] in c["body"]: print(c["id"])' "$1"
+  }
+  json_length()     { python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
+  json_id()         { python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])'; }
+  json_body()       { python3 -c 'import json,sys; print(json.dumps({"body": sys.argv[1]}))' "$1"; }
+else
+  fail "neither jq nor python3 found on the runner"
+fi
 
 # Resolve the body: a set body-file wins; a missing file means "empty".
 BODY_TEXT="${BODY:-}"
@@ -111,11 +132,12 @@ while [ "$page" -le 50 ]; do
   data="$(printf '%s' "$resp" | sed '$d')"
   http_ok "$code" || fail "list comments returned HTTP ${code}"
 
-  mapfile -t page_ids < <(printf '%s' "$data" \
-    | jq -r --arg m "$MARK" '.[]? | select(.body != null and (.body | contains($m))) | .id')
-  [ "${#page_ids[@]}" -gt 0 ] && ids+=("${page_ids[@]}")
+  # while-read, not mapfile: macOS runners ship bash 3.2.
+  while IFS= read -r id; do
+    if [ -n "$id" ]; then ids+=("$id"); fi
+  done < <(printf '%s' "$data" | json_marked_ids "$MARK")
 
-  count="$(printf '%s' "$data" | jq 'length')"
+  count="$(printf '%s' "$data" | json_length)"
   [ "${count:-0}" -lt 100 ] && break
   page=$((page + 1))
 done
@@ -139,7 +161,7 @@ fi
 
 # --- Non-empty body: upsert (and collapse duplicates) ------------------------
 full_body="${MARK}"$'\n'"${BODY_TEXT}"
-payload="$(jq -n --arg b "$full_body" '{body: $b}')"
+payload="$(json_body "$full_body")"
 
 if [ "${#ids[@]}" -eq 0 ]; then
   resp="$(api POST "${API}/repos/${REPO}/issues/${PR_NUMBER}/comments" "$payload")" \
@@ -147,7 +169,7 @@ if [ "${#ids[@]}" -eq 0 ]; then
   code="$(printf '%s' "$resp" | tail -n1)"
   data="$(printf '%s' "$resp" | sed '$d')"
   http_ok "$code" || fail "create comment returned HTTP ${code}"
-  new_id="$(printf '%s' "$data" | jq -r '.id')"
+  new_id="$(printf '%s' "$data" | json_id)"
   echo "pr-comment: created comment ${new_id}."
   set_output "comment-id" "$new_id"
   set_output "result" "created"

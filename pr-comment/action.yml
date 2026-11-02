@@ -56,7 +56,11 @@ runs:
   steps:
     - id: upsert
       shell: bash
-      run: ${{ github.action_path }}/bin/upsert-comment.sh
+      # ${GITHUB_ACTION_PATH}, quoted, not ${{ github.action_path }}: the
+      # expression holds the host path in container jobs (the actions dir is
+      # mounted at /__w/_actions there), and on Windows bash strips the
+      # backslashes of the unquoted D:\a\... path.
+      run: bash "${GITHUB_ACTION_PATH}/bin/upsert-comment.sh"
       env:
         MARKER: ${{ inputs.marker }}
         BODY: ${{ inputs.body }}
