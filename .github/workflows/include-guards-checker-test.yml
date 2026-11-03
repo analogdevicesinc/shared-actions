@@ -1,0 +1,30 @@
+name: Test include guards checker
+
+on:
+  pull_request:
+    branches: main
+    paths:
+      - 'include-guards-checker/**'
+      - '.github/workflows/include-guards-checker-test.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  include-guards-checker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7
+      - name: Select Python 3.11 for main build
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.11'
+      - name: Check include guards
+        uses: ./include-guards-checker
+        with:
+          workspace: ${{ github.workspace }}/include-guards-checker
+          files: tests/app_ad9083.h,tests/app_clock.h,tests/parameters.h,tests/ad5766_core.h
+          generate-pr-report: true
+          fail-on-findings: false
