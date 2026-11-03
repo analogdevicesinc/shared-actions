@@ -1,0 +1,3 @@
+tests/ignore.h
+tests/ignore2.h
+tests/ignore_path
