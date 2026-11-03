@@ -1,0 +1,53 @@
+name: Include guards checker action
+
+description:
+  Action to check for include guards in C/C++ header files
+
+inputs:
+  workspace:
+    description:
+      Absolute path to working space directory
+    required: false
+    default: .
+  files:
+    description:
+      List of header files relative to the workspace directory, separated by ','
+    required: true
+  generate-pr-report:
+    description:
+      Condition to generate or not the report to the PR
+    required: false
+    default: false
+  fail-on-findings:
+    description:
+      Condition for the step to fail in case of findings
+    required: false
+    default: false
+  ignored-files:
+    description:
+      Path to a .txt containing list of files separated by newline to be ignored on check
+    required: false
+    default: "" 
+
+runs:
+  using: composite
+  steps:
+    - name: Setup python tools
+      shell: sh
+      run: |
+        pip install html_to_markdown actions-toolkit tabulate
+    - name: Run include guards checker
+      shell: sh
+      run: |
+        ${{ github.action_path }}/bin/include-guards-checker.py
+      env:
+        WORKSPACE: ${{ inputs.workspace }}
+        FILES: ${{ inputs.files }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        IGNORED_FILES: ${{ inputs.ignored-files }}
+    - name: Generate PR report
+      if: inputs.generate-pr-report == 'true' && always()
+      uses: analogdevicesinc/shared-actions/pr-comment@main
+      with:
+        marker: include-guards-checker-report
+        body-file: ${{ inputs.workspace }}/include_guards_findings.md
