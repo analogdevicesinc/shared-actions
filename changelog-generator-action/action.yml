@@ -1,0 +1,53 @@
+name: Generate Debian Changelog
+
+description: >-
+  Regenerate the debian/changelog bullet entries from git commits in a
+  configurable range, in place. If the top stanza is still a template
+  (@VERSION@), its bullets are overwritten; otherwise a new stanza is
+  prepended above the existing history. Leaves the @VERSION@ and @DATE@
+  placeholders untouched for deb-generator-action to fill at build time.
+  Package name and maintainer are read from packaging/debian/control.
+
+inputs:
+  working-directory:
+    description: 'Path to the source checkout (relative to $GITHUB_WORKSPACE).'
+    required: false
+    default: '.'
+  control-path:
+    description: 'Path to the debian control files (changelog + control), relative to working-directory.'
+    required: false
+    default: 'packaging/debian'
+  distribution:
+    description: 'Changelog distribution field.'
+    required: false
+    default: 'kuiper'
+  since:
+    description: 'Start of the commit range (exclusive). Empty = last reachable tag (whole history if none).'
+    required: false
+    default: ''
+  until:
+    description: 'End of the commit range (inclusive). Empty = HEAD.'
+    required: false
+    default: ''
+
+outputs:
+  entries-count:
+    description: 'Number of changelog entries generated.'
+    value: ${{ steps.generate.outputs.entries-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate changelog
+      id: generate
+      shell: bash
+      env:
+        # Inputs are passed as env vars (never interpolated into the script body)
+        # so git-log-derived content cannot be evaluated by the shell.
+        WORKING_DIRECTORY: ${{ github.workspace }}/${{ inputs.working-directory }}
+        CONTROL_PATH: ${{ inputs.control-path }}
+        DISTRIBUTION: ${{ inputs.distribution }}
+        SINCE: ${{ inputs.since }}
+        UNTIL: ${{ inputs.until }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: "$ACTION_PATH/generate-changelog.sh"
