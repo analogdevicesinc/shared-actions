@@ -1,0 +1,34 @@
+name: Test pr commits checker action
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'pr-commits-checker/**'
+      - '.github/workflows/pr-commits-checker-test.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'pr-commits-checker/**'
+      - '.github/workflows/pr-commits-checker-test.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  pr-commits-checker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Check commits (test PR 18)
+        uses: ./pr-commits-checker
+        with:
+          repository: analogdevicesinc/shared-actions
+          token: ${{ secrets.GH_SA_TOKEN }}
+          pr-id: 18
+          fail-on-findings: false
+          generate-pr-report: true
