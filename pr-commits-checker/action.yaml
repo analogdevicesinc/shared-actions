@@ -1,0 +1,51 @@
+name: Check pr commits messages
+
+description:
+  Action to check commits structure from a PR
+
+inputs:
+  repository:
+    description:
+      Repository name and owner for the work in progres in <OWNER>/<REPO> format
+    required: true
+  token:
+    description:
+      Github token necessary for accessing the API to make requests about commits history
+    required: true
+  pr-id:
+    description:
+      Pull request id for the work in progress
+    required: true
+  fail-on-findings:
+    description:
+      Condition whether to fail or not on findings
+    required: false
+    default: true
+  generate-pr-report:
+    description:
+      Condition to whether create a pr comment with a report on findings or not
+    required: false
+    default: true
+
+runs:
+  using: composite
+  steps:
+    - name: Setup python tools
+      shell: sh
+      run: |
+        pip install html_to_markdown actions-toolkit tabulate PyGithub
+    - name: Run pr commits checker
+      shell: sh
+      run: |
+        ${{ github.action_path }}/bin/pr-commits-checker.py
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+        PR_ID: ${{ inputs.pr-id }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+    - name: Generate PR report
+      if: inputs.generate-pr-report == 'true' && always()
+      uses: analogdevicesinc/shared-actions/pr-comment@main
+      with:
+        marker: pr-commits-checker-report
+        body-file: ${{ github.workspace }}/pr_commits_checker.md
