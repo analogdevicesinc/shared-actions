@@ -6,7 +6,7 @@ description:
 inputs:
   repository:
     description:
-      Repository name and owner for the work in progres in <OWNER>/<REPO> format
+      Repository name and owner for the work in progress in <OWNER>/<REPO> format
     required: true
   token:
     description:
@@ -20,22 +20,21 @@ inputs:
     description:
       Condition whether to fail or not on findings
     required: false
-    default: true
+    default: 'true'
   generate-pr-report:
     description:
       Condition to whether create a pr comment with a report on findings or not
     required: false
-    default: true
+    default: 'true'
 
 runs:
   using: composite
   steps:
-    - name: Setup python tools
-      shell: sh
-      run: |
-        pip install html_to_markdown actions-toolkit tabulate PyGithub
+    - name: Setup Python dependencies
+      shell: bash
+      run: pip install tabulate actions-toolkit PyGithub
     - name: Run pr commits checker
-      shell: sh
+      shell: bash
       run: |
         ${{ github.action_path }}/bin/pr-commits-checker.py
       env:

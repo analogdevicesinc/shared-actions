@@ -1,34 +1,50 @@
 # PR Commits Checker
 
-This composite action retrieves the commits in a pull request through the GitHub API and checks each commit message for the conventions below.
+This composite action validates commit messages using [commitlint](https://commitlint.js.org/) and generates a PR comment report with findings.
 
 ## Inputs
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `repository` | yes | — | Repository owner and name, in `<OWNER>/<REPO>` format |
-| `token` | yes | — | GitHub token used to access the repository and pull request |
-| `pr-id` | yes | — | Pull request number |
+| `base-sha` | no | — | Base SHA for PR range (use `github.event.pull_request.base.sha`) |
+| `head-sha` | no | — | Head SHA for PR range (use `github.event.pull_request.head.sha`) |
+| `config-path` | no | built-in | Path to custom commitlint config file |
 | `fail-on-findings` | no | `true` | Fail the action when any commit has a finding |
 | `generate-pr-report` | no | `true` | Generate a pull request comment containing the findings |
 
-The token needs permission to read pull requests in the target repository. The action does not need a local checkout to inspect commit history.
+When both `base-sha` and `head-sha` are provided, all commits in that range are checked. Otherwise, only the last commit is checked (useful for push events).
 
 ## Checks
 
-For each pull request commit, the checker flags:
+The built-in configuration enforces:
 
-- A first-line commit subject longer than 50 characters.
-- A commit body line longer than 72 characters, except lines that start with a space or hyphen, or contain `http` or `https`. The first and final lines are excluded from this check.
-- A final commit-message line that does not contain `Signed-off-by`.
+- Subject line (header) max 50 characters
+- Body lines max 72 characters (URLs automatically excluded)
+- Blank line between subject and body
+- Blank line before trailers
+- `Signed-off-by:` trailer required (DCO)
 
-The checker records the commit's zero-based position in the pull request, its seven-character SHA, and the first detected reason for that commit. Findings are logged; the action fails for findings when `fail-on-findings` is `true`.
+Additional trailers like `Assisted-by:` are allowed and not restricted.
+
+### Example valid commit
+
+```
+drivers: frequency: adf4030: add JESD204 support
+
+The ADF4030 generates BSYNC and SYSREF, so it takes part in JESD204
+bring-up rather than being configured once at probe.
+
+Assisted-by: Claude Opus 5
+Signed-off-by: Name <email@example.com>
+```
 
 ## Report
 
-When `generate-pr-report` is `true`, the action attempts to post a comment using the generated `pr_commits_checker.md` report. The script creates that file only when it finds at least one commit that violates a check.
+When `generate-pr-report` is `true` and findings exist, the action posts a PR comment with a table listing each failing commit and its violations.
 
 ## Usage
+
+### Pull request checks
 
 ```yaml
 name: Check PR commits
@@ -37,18 +53,55 @@ on:
   pull_request:
 
 permissions:
-  pull-requests: write
+  contents: read
 
 jobs:
   check-commits:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Check commit messages
         uses: analogdevicesinc/shared-actions/pr-commits-checker@main
         with:
-          repository: ${{ github.repository }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          pr-id: ${{ github.event.pull_request.number }}
-          fail-on-findings: true
-          generate-pr-report: true
+          base-sha: ${{ github.event.pull_request.base.sha }}
+          head-sha: ${{ github.event.pull_request.head.sha }}
+```
+
+### Push checks
+
+```yaml
+name: Check commits
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  check-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check last commit
+        uses: analogdevicesinc/shared-actions/pr-commits-checker@main
+```
+
+### Custom configuration
+
+To override the built-in rules, provide your own commitlint config:
+
+```yaml
+- name: Check commits
+  uses: analogdevicesinc/shared-actions/pr-commits-checker@main
+  with:
+    base-sha: ${{ github.event.pull_request.base.sha }}
+    head-sha: ${{ github.event.pull_request.head.sha }}
+    config-path: .commitlintrc.js
 ```
