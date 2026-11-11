@@ -45,6 +45,7 @@ The default pattern matches any of these copyright styles:
 - `Copyright (c) 2026 Analog Devices, Inc.`
 - `Copyright © 2026 Analog Devices, Inc.`
 - `Copyright 2026 Analog Devices, Inc.`
+- `Copyright (c) 2026, Analog Devices, Inc.` (comma after the year)
 
 ## Usage
 
@@ -161,7 +162,7 @@ Files with a copyright from a different holder will:
 | `fail-on-missing` | Fail the action if files have copyright/license issues | `true` |
 | `summary-output` | Whether to output a GitHub Actions job summary | `true` |
 | `full-scan` | Scan all files. When `false`, only scan changed files in PR | `false` |
-| `copyright-pattern` | Regex to match the copyright line | `Copyright\s*(?:©\|\(c\)\|)\s*(\d{4})\s*(?:[-,]\s*(\d{4}))?\s+.+` |
+| `copyright-pattern` | Regex to match the copyright line | `Copyright\s*(?:©\|\(c\)\|)\s*(\d{4})\s*(?:[-,]\s*(\d{4}))?,?\s+.+` |
 | `license-pattern` | Regex to match the license line. Empty to skip license checking | `SPDX-License-Identifier:\s+\S+` |
 | `license-header-lines` | Number of lines from top of file to scan for license | `30` |
 | `valid-licenses` | Comma-separated list of accepted SPDX identifiers. Merged with `.copyright-config.yml`. Empty to accept any | `''` |

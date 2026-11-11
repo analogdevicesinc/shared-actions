@@ -61,7 +61,7 @@ inputs:
       Perl-compatible regex to match the copyright line.
       Default matches "Copyright (c) <year>" or "Copyright <year>" with optional year range.
     required: false
-    default: 'Copyright\s*(?:©|\(c\)|)\s*(\d{4})\s*(?:[-,]\s*(\d{4}))?\s+.+'
+    default: 'Copyright\s*(?:©|\(c\)|)\s*(\d{4})\s*(?:[-,]\s*(\d{4}))?,?\s+.+'
   license-pattern:
     description: >-
       Perl-compatible regex to match a license identifier in the file header.
