@@ -88,6 +88,13 @@ inputs:
       Leave empty to accept any copyright holder without warnings.
     required: false
     default: ''
+  allow-earlier-start-year:
+    description: >-
+      Accept a header start year earlier than the file's first Git commit, so
+      copyrights that predate the available history (imported or rewritten
+      files) can stay. The end year must still match the most recent commit.
+    required: false
+    default: 'false'
   copyright-config:
     description: >-
       Path to a YAML config file defining project-license and allowed-licenses.
@@ -183,6 +190,7 @@ runs:
         INPUT_VALID_LICENSES: ${{ inputs.valid-licenses }}
         INPUT_COPYRIGHT_CONFIG: ${{ inputs.copyright-config }}
         INPUT_COPYRIGHT_HOLDER: ${{ inputs.copyright-holder }}
+        INPUT_ALLOW_EARLIER_START_YEAR: ${{ inputs.allow-earlier-start-year }}
         CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
       run: |
         bash "${GITHUB_ACTION_PATH}/scripts/check-copyright-license.sh"

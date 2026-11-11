@@ -166,6 +166,7 @@ Files with a copyright from a different holder will:
 | `license-header-lines` | Number of lines from top of file to scan for license | `30` |
 | `valid-licenses` | Comma-separated list of accepted SPDX identifiers. Merged with `.copyright-config.yml`. Empty to accept any | `''` |
 | `copyright-holder` | Expected copyright holder (e.g. `Analog Devices`). Files with a different holder warn instead of fail. Empty to skip | `''` |
+| `allow-earlier-start-year` | Accept a header start year earlier than the file's first Git commit. The end year is still checked | `false` |
 | `copyright-config` | Path to YAML config file defining project-license and allowed-licenses | `.copyright-config.yml` |
 
 ## Outputs
@@ -228,6 +229,14 @@ The copyright year range must reflect the file's Git history:
 - **Single year**: when first and last commit are in the same year, the header must use single-year format (not a range)
 
 Git history follows file renames (`git log --follow`). Copy operations are treated as new files.
+
+When a file's copyright predates the history the repository holds (it was imported, or the history was rewritten), Git reports a later start year than the header. Set `allow-earlier-start-year: true` to keep the existing start year: a header such as `2025-2026` then passes for a file Git first sees in 2026. A start year later than Git's still fails, and the end year must still match the most recent commit.
+
+```yaml
+- uses: analogdevicesinc/shared-actions/copyright-license-check@main
+  with:
+    allow-earlier-start-year: true
+```
 
 Requires `fetch-depth: 0` in your checkout step for full Git history access.
 
