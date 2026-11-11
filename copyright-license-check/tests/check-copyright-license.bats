@@ -53,6 +53,7 @@ set_env() {
   export INPUT_VALID_LICENSES=""
   export INPUT_COPYRIGHT_CONFIG=".copyright-config.yml"
   export INPUT_COPYRIGHT_HOLDER=""
+  export INPUT_ALLOW_EARLIER_START_YEAR=false
   export GITHUB_OUTPUT="${REPO}/github_output.txt"
   export GITHUB_STEP_SUMMARY="${REPO}/github_summary.md"
   export CHANGED_FILES=""
@@ -231,6 +232,74 @@ print('v2')" > "src/main.py"
 # SPDX-License-Identifier: MIT
 print('hello')"
 
+  export INPUT_FAIL_ON_MISSING=false
+  run bash "${SCRIPT}"
+  [[ "$(get_output wrong_years_count)" == "1" ]]
+}
+
+@test "rejects start year predating git by default" {
+  setup_test_repo
+  set_env
+  add_file "src/main.py" "# Copyright (c) 2025-2026 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT" "2026"
+
+  export INPUT_FAIL_ON_MISSING=false
+  run bash "${SCRIPT}"
+  [[ "$(get_output wrong_years_count)" == "1" ]]
+}
+
+@test "allow-earlier-start-year accepts range predating git" {
+  setup_test_repo
+  set_env
+  add_file "src/main.py" "# Copyright (c) 2025-2026 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT" "2026"
+
+  export INPUT_ALLOW_EARLIER_START_YEAR=true
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output wrong_years_count)" == "0" ]]
+}
+
+@test "allow-earlier-start-year accepts start predating a multi-year history" {
+  setup_test_repo
+  set_env
+  add_file "src/main.py" "# Copyright (c) 2020-2025 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT
+print('v1')" "2025"
+
+  printf '%s\n' "# Copyright (c) 2020-2026 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT
+print('v2')" > "src/main.py"
+  git add "src/main.py"
+  GIT_AUTHOR_DATE="2026-06-15T12:00:00" \
+  GIT_COMMITTER_DATE="2026-06-15T12:00:00" \
+  git commit -q -m "update main.py"
+
+  export INPUT_ALLOW_EARLIER_START_YEAR=true
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output wrong_years_count)" == "0" ]]
+}
+
+@test "allow-earlier-start-year still rejects a later start year" {
+  setup_test_repo
+  set_env
+  add_file "src/main.py" "# Copyright (c) 2026 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT" "2025"
+
+  export INPUT_ALLOW_EARLIER_START_YEAR=true
+  export INPUT_FAIL_ON_MISSING=false
+  run bash "${SCRIPT}"
+  [[ "$(get_output wrong_years_count)" == "1" ]]
+}
+
+@test "allow-earlier-start-year still checks the end year" {
+  setup_test_repo
+  set_env
+  add_file "src/main.py" "# Copyright (c) 2024-2025 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT" "2026"
+
+  export INPUT_ALLOW_EARLIER_START_YEAR=true
   export INPUT_FAIL_ON_MISSING=false
   run bash "${SCRIPT}"
   [[ "$(get_output wrong_years_count)" == "1" ]]
