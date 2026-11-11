@@ -41,7 +41,7 @@ add_file() {
 
 # Set common env vars for running the script
 set_env() {
-  export COPYRIGHT_PATTERN='Copyright\s*(?:©|\(c\)|)\s*(\d{4})\s*(?:[-,]\s*(\d{4}))?\s+.+'
+  export COPYRIGHT_PATTERN='Copyright\s*(?:©|\(c\)|)\s*(\d{4})\s*(?:[-,]\s*(\d{4}))?,?\s+.+'
   export LICENSE_PATTERN='SPDX-License-Identifier:\s+\S+'
   export INPUT_FILE_EXTENSIONS="py,sh,c"
   export INPUT_FULL_SCAN=true
@@ -255,6 +255,22 @@ print('ok')"
   run bash "${SCRIPT}"
   [[ "${status}" -eq 0 ]]
   [[ "$(get_output missing_count)" == "0" ]]
+}
+
+@test "accepts a comma after the year" {
+  setup_test_repo
+  set_env
+  local year
+  year="$(date +%Y)"
+
+  add_file "src/comma.py" "# Copyright (C) ${year}, Analog Devices, Inc.
+# SPDX-License-Identifier: MIT
+print('ok')"
+
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output missing_count)" == "0" ]]
+  [[ "$(get_output wrong_years_count)" == "0" ]]
 }
 
 # ── License allowlist (valid-licenses) ───────────────────────────
