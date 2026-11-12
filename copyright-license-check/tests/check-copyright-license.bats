@@ -54,6 +54,7 @@ set_env() {
   export INPUT_COPYRIGHT_CONFIG=".copyright-config.yml"
   export INPUT_COPYRIGHT_HOLDER=""
   export INPUT_ALLOW_EARLIER_START_YEAR=false
+  export INPUT_CHECK_START_YEAR=true
   export GITHUB_OUTPUT="${REPO}/github_output.txt"
   export GITHUB_STEP_SUMMARY="${REPO}/github_summary.md"
   export CHANGED_FILES=""
@@ -791,4 +792,63 @@ print('vendored')" "2018"
   [[ "${status}" -eq 0 ]]
   [[ "$(get_output third_party_count)" == "1" ]]
   [[ "$(get_output passed)" == "true" ]]
+}
+
+# ── check-start-year ─────────────────────────────────────────────
+
+@test "check-start-year=false ignores a start year that differs from git" {
+  setup_test_repo
+  set_env
+  add_file "src/main.py" "# Copyright (c) 2010-2026 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT" "2026"
+
+  export INPUT_CHECK_START_YEAR=false
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output wrong_years_count)" == "0" ]]
+}
+
+@test "check-start-year=false accepts a range on a single-year file" {
+  setup_test_repo
+  set_env
+  add_file "src/main.py" "# Copyright (c) 2025-2026 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT" "2026"
+
+  export INPUT_CHECK_START_YEAR=false
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+}
+
+@test "check-start-year=false still checks the end year" {
+  setup_test_repo
+  set_env
+  add_file "src/main.py" "# Copyright (c) 2020-2024 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT" "2026"
+
+  export INPUT_CHECK_START_YEAR=false
+  run bash "${SCRIPT}"
+  [[ "${status}" -ne 0 ]]
+  [[ "$(get_output wrong_years_count)" == "1" ]]
+}
+
+@test "check-start-year=false rejects a start year after the end year" {
+  setup_test_repo
+  set_env
+  add_file "src/main.py" "# Copyright (c) 2027-2026 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT" "2026"
+
+  export INPUT_CHECK_START_YEAR=false
+  run bash "${SCRIPT}"
+  [[ "${status}" -ne 0 ]]
+}
+
+@test "check-start-year=true (default) rejects a wrong start year" {
+  setup_test_repo
+  set_env
+  add_file "src/main.py" "# Copyright (c) 2010-2026 Analog Devices, Inc.
+# SPDX-License-Identifier: MIT" "2026"
+
+  run bash "${SCRIPT}"
+  [[ "${status}" -ne 0 ]]
+  [[ "$(get_output wrong_years_count)" == "1" ]]
 }

@@ -95,6 +95,26 @@ inputs:
       files) can stay. The end year must still match the most recent commit.
     required: false
     default: 'false'
+  base-sha:
+    description: >-
+      Base commit of the range to check on pull_request events. When set, the
+      changed files are the diff between base-sha and head-sha, and the base
+      branch is never fetched. The commit must be present locally (it is
+      fetched with depth 1 otherwise). Leave empty to diff against the base
+      branch of the pull request.
+    required: false
+    default: ''
+  head-sha:
+    description: 'Head commit of the range to check. Used with base-sha. Defaults to HEAD.'
+    required: false
+    default: ''
+  check-start-year:
+    description: >-
+      Validate the header start year against the first Git commit of each
+      file. Set to false for range-limited checkouts where the file history is
+      incomplete. The end year is still validated against the last commit.
+    required: false
+    default: 'true'
   copyright-config:
     description: >-
       Path to a YAML config file defining project-license and allowed-licenses.
@@ -165,13 +185,12 @@ runs:
       if: steps.resolve-mode.outputs.mode == 'changed'
       id: changed-files
       shell: bash
+      env:
+        BASE_REF: ${{ github.base_ref }}
+        BASE_SHA: ${{ inputs.base-sha }}
+        HEAD_SHA: ${{ inputs.head-sha }}
       run: |
-        git fetch origin ${{ github.base_ref }}
-        CHANGED_FILES=$(git diff --name-only --diff-filter=d origin/${{ github.base_ref }}...HEAD)
-        DELIMITER="files_GHEOF_$$"
-        echo "files<<${DELIMITER}" >> "${GITHUB_OUTPUT}"
-        echo "${CHANGED_FILES}" >> "${GITHUB_OUTPUT}"
-        echo "${DELIMITER}" >> "${GITHUB_OUTPUT}"
+        bash "${GITHUB_ACTION_PATH}/scripts/get-changed-files.sh"
     - name: Scan for copyright/license headers
       if: steps.resolve-mode.outputs.mode != 'skip'
       id: scan
@@ -191,6 +210,7 @@ runs:
         INPUT_COPYRIGHT_CONFIG: ${{ inputs.copyright-config }}
         INPUT_COPYRIGHT_HOLDER: ${{ inputs.copyright-holder }}
         INPUT_ALLOW_EARLIER_START_YEAR: ${{ inputs.allow-earlier-start-year }}
+        INPUT_CHECK_START_YEAR: ${{ inputs.check-start-year }}
         CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
       run: |
         bash "${GITHUB_ACTION_PATH}/scripts/check-copyright-license.sh"

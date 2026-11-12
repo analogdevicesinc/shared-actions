@@ -34,4 +34,4 @@ jobs:
         run: npm install --save-dev bats
 
       - name: Run bats tests
-        run: npx bats copyright-license-check/tests/check-copyright-license.bats
+        run: npx bats copyright-license-check/tests/

@@ -38,6 +38,7 @@ FULL_SCAN="${INPUT_FULL_SCAN:-false}"
 CHANGED_FILES="${CHANGED_FILES:-}"
 COPYRIGHT_HOLDER="${INPUT_COPYRIGHT_HOLDER:-}"
 ALLOW_EARLIER_START_YEAR="${INPUT_ALLOW_EARLIER_START_YEAR:-false}"
+CHECK_START_YEAR="${INPUT_CHECK_START_YEAR:-true}"
 
 # Parse valid-licenses from action input
 VALID_LICENSES=()
@@ -483,8 +484,10 @@ validate_file_copyright() {
     return 2
   fi
 
-  local GIT_FIRST="$(git_first_year "${file}")"
-  local GIT_LAST="$(git_last_year "${file}")"
+  local GIT_FIRST="" GIT_LAST="$(git_last_year "${file}")"
+  # The first commit needs the full file history; skip it when the start year
+  # is not validated (range-limited checkouts).
+  [[ "${CHECK_START_YEAR}" == "true" ]] && GIT_FIRST="$(git_first_year "${file}")"
   [[ -z "${GIT_FIRST}" ]] && GIT_FIRST="${CURRENT_YEAR}"
   [[ -z "${GIT_LAST}" ]] && GIT_LAST="${CURRENT_YEAR}"
 
@@ -497,7 +500,12 @@ validate_file_copyright() {
     START_PREDATES_GIT=true
   fi
 
-  if [[ "${HEADER_START}" != "${GIT_FIRST}" && "${START_PREDATES_GIT}" != true ]]; then
+  if [[ "${CHECK_START_YEAR}" != "true" ]]; then
+    if (( HEADER_START > HEADER_END )); then
+      YEAR_OK=false
+      VALIDATION_DETAIL="Start year after end year: header=${HEADER_START}-${HEADER_END}"
+    fi
+  elif [[ "${HEADER_START}" != "${GIT_FIRST}" && "${START_PREDATES_GIT}" != true ]]; then
     YEAR_OK=false
     VALIDATION_DETAIL="Start year: header=${HEADER_START} git=${GIT_FIRST}"
   fi
@@ -508,8 +516,8 @@ validate_file_copyright() {
     VALIDATION_DETAIL+="End year: header=${HEADER_END} git=${GIT_LAST}"
   fi
 
-  if [[ "${GIT_FIRST}" == "${GIT_LAST}" && "${HEADER_START}" != "${HEADER_END}" \
-        && "${START_PREDATES_GIT}" != true ]]; then
+  if [[ "${CHECK_START_YEAR}" == "true" && "${GIT_FIRST}" == "${GIT_LAST}" \
+        && "${HEADER_START}" != "${HEADER_END}" && "${START_PREDATES_GIT}" != true ]]; then
     YEAR_OK=false
     VALIDATION_DETAIL="File created and last modified in ${GIT_FIRST}, but header has range ${HEADER_START}-${HEADER_END}"
   fi
