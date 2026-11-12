@@ -31,6 +31,7 @@ inputs:
       vhd,vhdl,
       v,sv,
       tcl,
+      dts,dtsi,dtso,
       sql,
       scss,css,
   exclude-dirs:
@@ -115,6 +116,12 @@ inputs:
       incomplete. The end year is still validated against the last commit.
     required: false
     default: 'true'
+  ignore-trivial-changes:
+    description: >-
+      On pull_request events, skip files whose only changes are a rename
+      without edits, a mode change, or whitespace/blank-line changes.
+    required: false
+    default: 'false'
   copyright-config:
     description: >-
       Path to a YAML config file defining project-license and allowed-licenses.
@@ -189,6 +196,7 @@ runs:
         BASE_REF: ${{ github.base_ref }}
         BASE_SHA: ${{ inputs.base-sha }}
         HEAD_SHA: ${{ inputs.head-sha }}
+        IGNORE_TRIVIAL_CHANGES: ${{ inputs.ignore-trivial-changes }}
       run: |
         bash "${GITHUB_ACTION_PATH}/scripts/get-changed-files.sh"
     - name: Scan for copyright/license headers

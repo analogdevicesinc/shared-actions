@@ -171,6 +171,7 @@ Files with a copyright from a different holder will:
 | `check-start-year` | Validate the header start year against the file's first Git commit. Set `false` for range-limited checkouts. The end year is still checked | `true` |
 | `base-sha` | Base commit of the range to check on `pull_request` events. The base branch is not fetched when set | `''` |
 | `head-sha` | Head commit of the range, used with `base-sha` | `HEAD` |
+| `ignore-trivial-changes` | On pull requests, skip files that only have a pure rename, a mode change, or whitespace/blank-line changes | `false` |
 | `copyright-config` | Path to YAML config file defining project-license and allowed-licenses | `.copyright-config.yml` |
 
 ## Outputs
@@ -259,6 +260,7 @@ On very large repositories, fetching the full history is impractical. Pass the c
 - The changed files are `git diff base-sha head-sha`; the base branch is never fetched. `base-sha` is fetched with depth 1 only if it is missing locally.
 - With `check-start-year: false` the first-commit lookup (`git log --follow`) is skipped, so the start year is not compared with Git and the single-year rule is not applied. The header start year must still not be later than the end year.
 - The end year is still compared with the last commit touching the file, which is inside the range.
+- Set `ignore-trivial-changes: true` to also skip files that were only renamed, had a mode change, or had whitespace/blank-line changes (files with 0 added and 0 deleted lines under `git diff -M -w --ignore-blank-lines`). An empty new file is skipped as well.
 - Without `base-sha`, the base branch is fetched only when it is not already an ancestor of `HEAD`.
 
 ## Ignore File (`.copyrightignore`)
@@ -302,6 +304,7 @@ The action scans the following file extensions by default:
 - **VHDL**: vhd, vhdl
 - **Verilog/SystemVerilog**: v, sv
 - **Tcl**: tcl
+- **Devicetree**: dts, dtsi, dtso
 - **SQL**: sql
 - **CSS**: scss, css
 

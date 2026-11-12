@@ -106,3 +106,55 @@ changed_files() {
   run bash "${SCRIPT}"
   [[ "${status}" -ne 0 ]]
 }
+
+# ── ignore-trivial-changes ───────────────────────────────────────
+
+# Add a commit on top of the feature commit with trivial and real changes
+trivial_commit() {
+  printf 'line one\nline two\n' > "${CLONE}/ws.py"
+  printf 'x\ny\nz\n' > "${CLONE}/moved.py"
+  printf 'p\nq\nr\ns\n' > "${CLONE}/edited.py"
+  printf '#!/bin/sh\necho hi\n' > "${CLONE}/mode.sh"
+  git -C "${CLONE}" add .
+  git -C "${CLONE}" commit -q -m files
+  BASE2="$(git -C "${CLONE}" rev-parse HEAD)"
+
+  printf 'line  one\n\nline two \n' > "${CLONE}/ws.py"
+  git -C "${CLONE}" mv moved.py renamed.py
+  git -C "${CLONE}" mv edited.py renamed_edited.py
+  printf 'p\nq\nr\nCHANGED\n' > "${CLONE}/renamed_edited.py"
+  chmod +x "${CLONE}/mode.sh"
+  git -C "${CLONE}" add -A
+  git -C "${CLONE}" -c core.fileMode=true commit -q -m trivial
+}
+
+@test "ignore-trivial-changes=true drops renames, mode and whitespace changes" {
+  setup_repos
+  cd "${CLONE}"
+  git config core.fileMode true
+  trivial_commit
+  BASE_SHA="${BASE2}" IGNORE_TRIVIAL_CHANGES=true run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(changed_files)" == "renamed_edited.py" ]]
+}
+
+@test "ignore-trivial-changes is off by default" {
+  setup_repos
+  cd "${CLONE}"
+  git config core.fileMode true
+  trivial_commit
+  BASE_SHA="${BASE2}" run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(changed_files)" == *"mode.sh"* ]]
+  [[ "$(changed_files)" == *"renamed.py"* ]]
+  [[ "$(changed_files)" == *"ws.py"* ]]
+  [[ "$(changed_files)" == *"renamed_edited.py"* ]]
+}
+
+@test "ignore-trivial-changes keeps new files and real edits" {
+  setup_repos
+  cd "${CLONE}"
+  BASE_SHA="${BASE}" IGNORE_TRIVIAL_CHANGES=true run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(changed_files)" == "b.py" ]]
+}
