@@ -852,3 +852,65 @@ print('vendored')" "2018"
   [[ "${status}" -ne 0 ]]
   [[ "$(get_output wrong_years_count)" == "1" ]]
 }
+
+# ── Multiple copyrights in one file ──────────────────────────────
+
+@test "foreign copyright first, valid ADI copyright second passes" {
+  setup_test_repo
+  set_env
+  export INPUT_COPYRIGHT_HOLDER="Analog Devices"
+  local year
+  year="$(date +%Y)"
+  add_file "src/main.py" "# Copyright (c) 2015 Some Other Corp.
+# Copyright (c) ${year} Analog Devices, Inc.
+# SPDX-License-Identifier: GPL-2.0"
+
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output third_party_count)" == "0" ]]
+  [[ "$(get_output wrong_years_count)" == "0" ]]
+}
+
+@test "foreign copyright first, ADI copyright with wrong years fails" {
+  setup_test_repo
+  set_env
+  export INPUT_COPYRIGHT_HOLDER="Analog Devices"
+  add_file "src/main.py" "# Copyright (c) 2015 Some Other Corp.
+# Copyright (c) 2020 Analog Devices, Inc.
+# SPDX-License-Identifier: GPL-2.0" "2026"
+
+  run bash "${SCRIPT}"
+  [[ "${status}" -ne 0 ]]
+  [[ "$(get_output wrong_years_count)" == "1" ]]
+  [[ "$(get_output third_party_count)" == "0" ]]
+}
+
+@test "ADI copyright first and foreign copyright second validates ADI years" {
+  setup_test_repo
+  set_env
+  export INPUT_COPYRIGHT_HOLDER="Analog Devices"
+  local year
+  year="$(date +%Y)"
+  add_file "src/main.py" "# Copyright (c) ${year} Analog Devices, Inc.
+# Copyright (c) 2015 Some Other Corp.
+# SPDX-License-Identifier: GPL-2.0"
+
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output third_party_count)" == "0" ]]
+}
+
+@test "several foreign copyrights only warn and are all reported" {
+  setup_test_repo
+  set_env
+  export INPUT_COPYRIGHT_HOLDER="Analog Devices"
+  add_file "src/main.py" "# Copyright (c) 2015 Corp One.
+# Copyright (c) 2018 Corp Two.
+# SPDX-License-Identifier: GPL-2.0" "2018"
+
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output third_party_count)" == "1" ]]
+  grep -q "Corp One" "${REPO}/github_output.txt"
+  grep -q "Corp Two" "${REPO}/github_output.txt"
+}
