@@ -460,15 +460,38 @@ git_last_year()  { git_year "$1" "-1" "first"; }
 
 # ── Copyright Validation ─────────────────────────────────────────
 
+# Collect every copyright line of a file into COPYRIGHT_LINES (a file can carry
+# several, e.g. upstream copyrights plus ours).
+COPYRIGHT_LINES=()
+collect_copyright_lines() {
+  COPYRIGHT_LINES=()
+  mapfile -t COPYRIGHT_LINES < <(grep -oPi "${COPYRIGHT_PATTERN}" -- "$1" 2>/dev/null || true)
+}
+
+# Does a copyright line belong to the configured holder?
+line_has_holder() {
+  printf '%s' "$1" | grep -qi -- "${COPYRIGHT_HOLDER}"
+}
+
 validate_file_copyright() {
   local file="$1"
   VALIDATION_DETAIL=""
 
-  local COPYRIGHT_LINE
-  COPYRIGHT_LINE="$(grep -oPi "${COPYRIGHT_PATTERN}" -- "${file}" 2>/dev/null | head -n 1)" || true
-
-  if [[ -z "${COPYRIGHT_LINE}" ]]; then
+  collect_copyright_lines "${file}"
+  if (( ${#COPYRIGHT_LINES[@]} == 0 )); then
     return 1  # Missing copyright
+  fi
+
+  # Validate the years of the holder's line when the file has several
+  # copyrights; otherwise (or without a holder) use the first one.
+  local COPYRIGHT_LINE="${COPYRIGHT_LINES[0]}" line
+  if [[ -n "${COPYRIGHT_HOLDER}" ]]; then
+    for line in "${COPYRIGHT_LINES[@]}"; do
+      if line_has_holder "${line}"; then
+        COPYRIGHT_LINE="${line}"
+        break
+      fi
+    done
   fi
 
   # Extract year range from the matched line
@@ -536,15 +559,18 @@ check_copyright_holder() {
 
   [[ -z "${COPYRIGHT_HOLDER}" ]] && return 0
 
-  local copyright_line
-  copyright_line="$(grep -oPi "${COPYRIGHT_PATTERN}" -- "${file}" 2>/dev/null | head -n 1)" || true
-  [[ -z "${copyright_line}" ]] && return 0  # no copyright = handled elsewhere
+  collect_copyright_lines "${file}"
+  (( ${#COPYRIGHT_LINES[@]} == 0 )) && return 0  # no copyright = handled elsewhere
 
-  if printf '%s' "${copyright_line}" | grep -qi "${COPYRIGHT_HOLDER}"; then
-    return 0
-  fi
+  # The file passes as soon as one of its copyrights is the holder's.
+  local line joined=""
+  for line in "${COPYRIGHT_LINES[@]}"; do
+    line_has_holder "${line}" && return 0
+    [[ -n "${joined}" ]] && joined+=" | "
+    joined+="${line}"
+  done
 
-  THIRD_PARTY_COPYRIGHT_LINE="${copyright_line}"
+  THIRD_PARTY_COPYRIGHT_LINE="${joined}"
   return 1
 }
 

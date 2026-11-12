@@ -143,6 +143,8 @@ Files with a copyright from a different holder will:
 - Skip year validation (you don't control third-party years)
 - Appear as a warning in the job summary for manual review
 
+A file can carry several copyright lines. With `copyright-holder` set, all of them are read: the years are validated on the holder's line wherever it sits, and foreign lines are ignored. A file with copyrights but none from the holder warns, and every copyright line is listed in the summary. Without `copyright-holder`, only the first copyright line is validated.
+
 ### Copyright-Only (no license check)
 
 ```yaml
