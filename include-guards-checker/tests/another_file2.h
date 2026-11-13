@@ -1,0 +1,54 @@
+/***************************************************************************//**
+ *   @file   another_file2.h
+ *   @brief  Header file of another_file2.
+ *   @author Cristian Pop (cristian.pop@analog.com)
+********************************************************************************
+ * Copyright 2021(c) Analog Devices, Inc.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+*******************************************************************************/
+
+#ifndef ANOTHER_FILE2_H_
+#define ANOTHER_FILE3_H_
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "ad9083.h"
+
+/**
+ * @struct app_ad9083_init
+ * @brief Structure holding the parameters for ad9083 app initialization.
+ */
+struct app_ad9083_init {
+	/* Settings selection */
+	uint8_t uc;
+	/* jesd receive clock descriptor */
+	struct no_os_clk_desc *jesd_rx_clk_desc;
+};
+
+/**
+ * @struct app_ad9083
+ * @brief Structure holding ad9083 app descriptor.
+ */
+struct app_ad9083 {
+	/* Structure holding ad9083 device descriptor */
+	struct ad9083_phy *ad9083_phy;
+};
+
+/* Initialize the ad9083 app. */
+int32_t app_ad9083_init(struct app_ad9083 **app,
+			struct app_ad9083_init *init_param);
+
+/* Remove the app. */
+int32_t app_ad9083_remove(struct app_ad9083 *app);
+
+/* Check SYSREF clock. */
+bool app_ad9083_check_sysref_rate(uint32_t lmfc, uint32_t sysref);
+
+/* Check AD9083 subclass 1 status. */
+int32_t app_ad9083_subclass1_status(struct app_ad9083 *app);
+
+/* Check AD9083 status. */
+int32_t app_ad9083_status(struct app_ad9083 *app);
+
+#endif
