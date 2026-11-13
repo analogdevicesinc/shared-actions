@@ -1,0 +1,127 @@
+name: Tagging Shared Actions
+
+on:
+  push:
+    branches:
+      - main
+permissions:
+  contents: write
+jobs:
+  auto-tagging:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Git
+        run: |
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          git fetch --all
+
+      - name: Check if VERSION.ini is modified
+        id: check-modified
+        run: |
+            modified_files_count=$(git diff --diff-filter=AM $(git rev-parse origin/main^)...$(git rev-parse origin/main) --name-only | grep "VERSION.ini\|package.json" | wc -l)
+            if [ $modified_files_count -gt 0 ]; then
+              echo "package.json or VERSION.ini has been updated."
+              modified_files=$(git diff --diff-filter=AM $(git rev-parse origin/main^)...$(git rev-parse origin/main) --name-only | grep "VERSION.ini\|package.json")
+              echo "modified=true" >> $GITHUB_OUTPUT
+              echo "modified_files=$(echo $modified_files | tr '\n' ' ')" >> $GITHUB_OUTPUT
+            else
+              echo "package.json or VERSION.ini has not been updated."
+              echo "modified=false" >> $GITHUB_OUTPUT
+            fi
+
+      - name: Read tags from VERSION.ini
+        if:  ${{ steps.check-modified.outputs.modified }} == 'true'
+        id: read-versions
+        run: |
+            tags=""
+            for file in ${{ steps.check-modified.outputs.modified_files }}; do
+              echo "Reading versions from $file"
+              if [[ $file =~ package\.json$ ]]; then
+                action_name=$(echo $file | sed 's/\/package.json//g' | xargs)
+                echo "action name: $action_name"
+                tag=$(jq -r '.version' $file)
+                echo "tag: $tag"
+                if [[ $tag =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                  tags+="$action_name-v$tag "
+                else
+                  echo "Error: Invalid version format $tag in $file. Refer https://github.com/adi-innersource/shared-actions/blob/main/docs/versioning.md for details."
+                  exit 1
+                fi
+              elif [[ $file =~ VERSION\.ini$ ]]; then
+                action_name=$(echo $file | sed 's/\/VERSION.ini//g' | xargs)
+                echo "action name: $action_name"
+                while IFS= read -r tag; do
+                  tag=$(echo $tag | grep -i '^VERSION=' | sed 's/^VERSION=//Ig' | xargs)
+                  echo "tag: $tag"
+                  IFS=',' read -ra tag_array <<< "$tag"
+                  for t in "${tag_array[@]}"; do
+                    if [[ $t =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                      if [[ "$tags" == *"$action_name"* ]]; then
+                        echo "Error: Multiple tags found in $file. Only one tag per file is allowed."
+                        exit 1
+                      fi
+                      tags+="$action_name-v$t "
+                    else
+                      echo "Error: Invalid version format $t in $file. Refer https://github.com/adi-innersource/shared-actions/blob/main/docs/versioning.md for details."
+                      exit 1
+                    fi
+                  done
+                done < $file
+              fi
+            done
+            echo "tags=${tags}" >> $GITHUB_OUTPUT
+            echo "Tags to be added: ${tags}"
+
+      - name: Tag new actions
+        if: steps.check-modified.outputs.modified == 'true'
+        env:
+          TAGS: ${{ steps.read-versions.outputs.tags }}
+        run: |
+            failedtags=""
+            failjob=false
+            for tag in ${TAGS[@]}; do
+              skiptag=false
+              tag_check=$(git tag -l "$tag")
+              if [ ! -z "$tag_check" ]; then
+                echo "Error: Tag $tag already exists."
+                failedtags+="$tag "
+                failjob=true
+                skiptag=true
+              fi
+              if [ "$skiptag" != true ]; then
+                echo "Tagging $tag"
+                git tag -a $tag -m "Release $tag"
+                git push origin $tag
+                echo "Tagged with $tag"
+                # Add/move stable tag(s)
+                # Extract action_name and version
+                action_name=$(echo $tag | sed -E 's/(.*)-v[0-9]+\.[0-9]+\.[0-9]+/\1/')
+                version=$(echo $tag | sed -E 's/.*-v([0-9]+\.[0-9]+\.[0-9]+)/\1/')
+                major=$(echo $version | cut -d. -f1)
+                # Compose stable tag
+                stable_tag="$action_name-v$major"
+                echo "Applying stable tag: $stable_tag"
+                # Check if stable tag already exists
+                existing_stable_tag=$(git tag -l "$stable_tag")
+                if [ ! -z "$existing_stable_tag" ]; then
+                  echo "Stable tag $stable_tag exists. Removing and reapplying to $tag."
+                  git tag -d "$stable_tag"
+                  git push origin ":refs/tags/$stable_tag"
+                else
+                  echo "Stable tag $stable_tag does not exist. Creating new stable tag pointing to $tag."
+                fi
+                git tag "$stable_tag" "$tag"
+                git push origin "$stable_tag"
+                echo "Stable tag $stable_tag now points to $tag"
+              fi
+            done
+            if [ "$failjob" = true ]; then
+              echo "ERROR: Failed to tag: $failedtags"
+              exit 1
+            fi
