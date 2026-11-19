@@ -78,6 +78,29 @@ teardown() {
   [[ "${output}" == *"not a valid Debian upstream version"* ]]
 }
 
+@test "rejects a VERSION_SUFFIX containing a hyphen" {
+  run env VERSION=1.0.0 VERSION_SUFFIX='+debian-13' \
+    WORKING_DIRECTORY="${WORKDIR}/sample-pkg" bash "${SCRIPT}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"not a valid Debian revision suffix"* ]]
+}
+
+@test "rejects a VERSION_SUFFIX not starting with + or ~" {
+  run env VERSION=1.0.0 VERSION_SUFFIX='debian13' \
+    WORKING_DIRECTORY="${WORKDIR}/sample-pkg" bash "${SCRIPT}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"not a valid Debian revision suffix"* ]]
+}
+
+@test "accepts a valid VERSION_SUFFIX" {
+  # Passes suffix validation, then stops at the missing control dir.
+  rm -rf "${WORKDIR}/sample-pkg/packaging"
+  run env VERSION=1.0.0 VERSION_SUFFIX='+ubuntu24.04' \
+    WORKING_DIRECTORY="${WORKDIR}/sample-pkg" bash "${SCRIPT}"
+  [[ "${output}" != *"not a valid Debian revision suffix"* ]]
+  [[ "${output}" == *"directory not found"* ]]
+}
+
 @test "reads package name from control Source: field" {
   # Grep the same way the script does and confirm the fixture is well-formed.
   run grep -m1 '^Source:' "${WORKDIR}/sample-pkg/packaging/debian/control"
@@ -107,6 +130,20 @@ teardown() {
   [ "${status}" -eq 0 ]
   run bash -c "ls ${WORKDIR}/artifacts/*.deb"
   [ "${status}" -eq 0 ]
+}
+
+@test "full build appends VERSION_SUFFIX after the revision (needs apt/network/root)" {
+  if [ "${RUN_FULL_BUILD:-0}" != "1" ]; then
+    skip "set RUN_FULL_BUILD=1 to run the full build (requires apt + network)"
+  fi
+  export GITHUB_WORKSPACE="${WORKDIR}"
+  run env VERSION=1.0.0 VERSION_SUFFIX='+debian13' \
+    WORKING_DIRECTORY="${WORKDIR}/sample-pkg" bash "${SCRIPT}"
+  [ "${status}" -eq 0 ]
+  run bash -c "ls ${WORKDIR}/artifacts/sample-pkg_1.0.0-1+debian13_*.deb"
+  [ "${status}" -eq 0 ]
+  # The orig tarball keeps the plain upstream version.
+  [ -f "${WORKDIR}/artifacts/sample-pkg_1.0.0.orig.tar.gz" ]
 }
 
 @test "full build does not mutate the source tree (needs apt/network/root)" {
