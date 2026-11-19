@@ -1,0 +1,284 @@
+name: LLM Agent
+
+inputs:
+  ref:
+    description: "The branch, tag, PR number, or SHA to checkout"
+    required: true
+  run-id:
+    description: "Explicit workflow run to analyse"
+    required: false
+  prompt-file:
+    description: "File with the prompt to use"
+    required: true
+    default: ""
+  model:
+    description: "Model size"
+    required: false
+    default: "medium"
+  enable-goal:
+    description: 'Enable goal enforcement'
+    required: false
+    default: "true"
+  py-venv:
+    description: "Python virtual enviroment"
+    required: false
+    default: ""
+  sh-source:
+    description: "Bash script to source"
+    required: false
+  gh-token:
+    description: "GitHub Token"
+    default: ${{ github.token }}
+  api-key:
+    description: 'LLM API Key'
+    required: false
+
+outputs:
+  pr:
+    description: "Pull request number"
+    value: ${{ steps.checkout.outputs.pr }}
+  comment:
+    description: "Pull request comment"
+    value: ${{ steps.collect.outputs.comment }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check if should run
+      shell: bash
+      if: ${{ inputs.api-key != '' && inputs.api-key != ' ' }}
+      run: |
+        # Check if should run
+        echo "LLM_AGENT_RUN=true" >> "$GITHUB_ENV"
+
+    - name: Warn on won't run
+      shell: bash
+      if: ${{ inputs.api-key == '' || inputs.api-key == ' ' }}
+      run: |
+        # Warn on won't run
+        echo "::warning ::llm: Input 'api-key' empty, won't run"
+
+    - uses: analogdevicesinc/doctools/checkout@action
+      id: checkout
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      with:
+        ref: ${{ inputs.ref }}
+
+    - uses: analogdevicesinc/doctools/gh-collect-annotations@action
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      with:
+        ref: ${{ inputs.ref }}
+        run-id: ${{ inputs.run-id }}
+
+    - uses: analogdevicesinc/doctools/gh-collect-comments@action
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      with:
+        ref: ${{ inputs.ref }}
+
+    - name: Prepare files and context
+      shell: bash
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      run: |
+        # Prepare files
+        echo "session_file=$(mktemp -t llm-session.XXX.jsonl)" >> "$GITHUB_ENV"
+        echo "formatted_prompt_file=$(mktemp -t llm-prompt.XXX.md)" >> "$GITHUB_ENV"
+        echo "tasks_file=$(mktemp -t llm-tasks.XXX.md)" >> "$GITHUB_ENV"
+        echo "summary_file=$(mktemp -t llm-summary.XXX.md)" >> "$GITHUB_ENV"
+        echo "comment_file=$(mktemp -t llm-comment.XXX.md)" >> "$GITHUB_ENV"
+        echo "patches_path=$(mktemp -d)" >> "$GITHUB_ENV"
+
+        echo "server_url=${{ github.server_url }}" >> "$GITHUB_ENV"
+        echo "repository=${{ github.repository }}" >> "$GITHUB_ENV"
+        echo "run_id=${{ github.run_id }}" >> "$GITHUB_ENV"
+        echo "enable_goal=${{ inputs.enable-goal }}" >> "$GITHUB_ENV"
+
+    - name: Ensure node
+      shell: bash
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      run: |
+        # Ensure node
+        if ! which node ; then
+          if [[ -d "/home/runner/externals/node24/bin" ]]; then
+            echo "/home/runner/externals/node24/bin" >> "$GITHUB_PATH"
+          elif [[ -d "/home/runner/externals/node20/bin" ]]; then
+            echo "/home/runner/externals/node20/bin" >> "$GITHUB_PATH"
+          fi
+        fi
+
+    - name: Setup pi
+      shell: bash
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      run: |
+        # Setup pi
+        npm install @earendil-works/pi-coding-agent@0.81.1
+
+        mkdir -p ~/.pi/agent/extensions
+
+        curl -sL -H "Authorization: Bearer ${{ inputs.gh-token }}" -o "/tmp/fmt_args.py" \
+          https://raw.githubusercontent.com/analogdevicesinc/shared-actions/main/llm/fmt_args.py
+        curl -sL -H "Authorization: Bearer ${{ inputs.gh-token }}" -o "/tmp/rpc_runner.py" \
+          https://raw.githubusercontent.com/analogdevicesinc/shared-actions/main/llm/rpc_runner.py
+        curl -sL -H "Authorization: Bearer ${{ inputs.gh-token }}" -o "$HOME/.pi/agent/extensions/system-prompt.ts" \
+          https://raw.githubusercontent.com/analogdevicesinc/shared-actions/main/llm/system-prompt.ts
+        [[ "$enable_goal" == "true" ]] && curl -sL -H "Authorization: Bearer ${{ inputs.gh-token }}" -o "$HOME/.pi/agent/extensions/goal-completion.ts" \
+          https://raw.githubusercontent.com/analogdevicesinc/shared-actions/main/llm/goal-completion.ts
+
+        cat <<'EOF' > ~/.pi/agent/models.json
+        {
+            "providers": {
+                "portkey-vertexai": {
+                    "baseUrl": "https://api.portkey.ai",
+                    "api": "anthropic-messages",
+                    "apiKey": "$PORTKEY_API_KEY",
+                    "headers": {
+                        "x-portkey-api-key": "$PORTKEY_API_KEY",
+                        "x-portkey-virtual-key": "vertexai-global"
+                    },
+                    "models": [
+                        {"name": "small", "id": "anthropic.claude-haiku-4-5@20251001"}
+                    ]
+                },
+                "portkey-bedrock": {
+                    "baseUrl": "https://api.portkey.ai",
+                    "api": "anthropic-messages",
+                    "apiKey": "$PORTKEY_API_KEY",
+                    "headers": {
+                        "x-portkey-api-key": "$PORTKEY_API_KEY",
+                        "x-portkey-virtual-key": "bedrock-global"
+                    },
+                    "models": [
+                        {"name": "medium", "id": "us.anthropic.claude-sonnet-5"},
+                        {"name": "large", "id": "us.anthropic.claude-opus-4-8"}
+                    ]
+                }
+            }
+        }
+        EOF
+
+        cat <<'EOF' > ~/.pi/agent/settings.json
+        {
+            "shellCommandPrefix": ""
+        }
+        EOF
+
+        py_venv="${{ inputs.py-venv }}/bin/activate"
+        sh_source="${{ inputs.sh-source }}"
+        tmp=$(mktemp --suffix=.json)
+        [[ -f "$py_venv" ]] && \
+          jq --arg cmd "source $py_venv; " '.shellCommandPrefix += $cmd' ~/.pi/agent/settings.json > $tmp && mv $tmp ~/.pi/agent/settings.json
+
+        [[ -f "$sh_source" ]] && \
+          jq --arg cmd "source $sh_source; " '.shellCommandPrefix += $cmd' ~/.pi/agent/settings.json > $tmp && mv $tmp ~/.pi/agent/settings.json
+
+        rm -f $tmp
+
+    - name: Run pi
+      shell: bash
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      env:
+        PORTKEY_API_KEY: ${{ inputs.api-key }}
+      run: |
+        # Run pi
+        [[ "${{ inputs.model }}" == "small" ]] && provider="portkey-vertexai" || provider="portkey-bedrock"
+
+        python3 /tmp/fmt_args.py "${{ inputs.prompt-file }}" > "$formatted_prompt_file"
+
+        ret=0
+        python3 /tmp/rpc_runner.py \
+          --pi ./node_modules/.bin/pi \
+          --provider "$provider" --model "${{ inputs.model }}" \
+          --session "$session_file" \
+          --prompt-file "$formatted_prompt_file" \
+          --max-nudges 6 --max-seconds 3600 || ret=$?
+        ret=$?
+        set -e
+
+        echo "pi_ret=$ret" >> "$GITHUB_ENV"
+
+        case "$ret" in
+          0) : ;;
+          1) echo "::warning ::llm: agent stopped without reporting the goal complete." ;;
+          2) echo "::error ::llm: agent run failed with a fatal error." ;;
+          3) echo "::warning ::llm: agent run timed-out." ;;
+          *) echo "::warning ::llm: agent run exited with code ${ret}." ;;
+        esac
+
+    - name: Collect results
+      id: collect
+      shell: bash
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      run: |
+        # Collect results
+        [[ -s "$summary_file" ]] && {
+          cat "$summary_file" >> $GITHUB_STEP_SUMMARY
+        } || {
+          echo "::warning ::llm reviewer didn't write the workflow summary."
+          [[ -s "$tasks_file" ]] && cat "$tasks_file" >> $GITHUB_STEP_SUMMARY || :
+        }
+        [[ -s "$comment_file" ]] && {
+          echo 'comment<<EOF' >> $GITHUB_OUTPUT
+          cat "$comment_file" >> $GITHUB_OUTPUT
+          echo 'EOF' >> $GITHUB_OUTPUT
+        } || {
+          echo "::warning ::llm reviewer didn't write the review comment."
+
+          echo 'comment<<EOF' >> $GITHUB_OUTPUT
+          echo "## LLM Review
+
+        run: [${run_id}](${server_url}/${repository}/actions/runs/${run_id})
+        didn't generate any comment, but you can still review the workflow run, job 'llm'.
+        ">> $GITHUB_OUTPUT
+         echo 'EOF' >> $GITHUB_OUTPUT
+        }
+
+    - name: Store suggested patches
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      id: upload_patches
+      uses: actions/upload-artifact@v7
+      with:
+        name: llm-patches
+        path: ${{ env.patches_path }}
+        if-no-files-found: ignore
+
+    - name: Store session log
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      id: upload_session
+      uses: actions/upload-artifact@v7
+      with:
+        name: llm-session
+        path: ${{ env.session_file }}
+        if-no-files-found: ignore
+
+    - name: Add patches to summary
+      shell: bash
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      run: |
+        # Add patches to summary
+        [[ -z "$(ls -A "$patches_path")" ]] && exit 0
+
+        # Requires upload-artifact@v7
+        url="${{ steps.upload_patches.outputs.artifact-url }}"
+        echo "## Suggested patches" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Suggested patches are provided at the [llm-patches]($url) artifact." >> $GITHUB_STEP_SUMMARY
+
+    - name: Add session to summary
+      shell: bash
+      if: ${{ env.LLM_AGENT_RUN == 'true' }}
+      run: |
+        # Add session to summary
+        [[ -s "$session_file" ]] || exit 0
+
+        url="${{ steps.upload_session.outputs.artifact-url }}"
+        echo "## Session" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "The session is provided at the [llm-session]($url) artifact." >> $GITHUB_STEP_SUMMARY
+
+    - name: Clean-up
+      shell: bash
+      if: ${{ env.LLM_AGENT_RUN == 'true' && always() }}
+      run: |
+        # Clean-up
+        rm -rf "$HOME/.pi"
+        rm -f "$annotations_file" "$comments_file" "$tasks_file" "$summary_file" "$comment_file" "$session_file" "$formatted_prompt_file"
+        rm -rf "$patches_path"
