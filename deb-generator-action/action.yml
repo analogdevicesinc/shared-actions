@@ -23,6 +23,10 @@ inputs:
   version:
     description: 'Version string (e.g., 1.2.3)'
     required: true
+  version-suffix:
+    description: 'Suffix appended after the Debian revision (e.g., +debian13 gives 1.2.3-1+debian13)'
+    required: false
+    default: ''
   working-directory:
     description: 'Path to source code (relative to $GITHUB_WORKSPACE)'
     required: false
@@ -51,6 +55,7 @@ runs:
       # into the shell. ACTION_PATH is set by the runner, not by the caller.
       env:
         VERSION: ${{ inputs.version }}
+        VERSION_SUFFIX: ${{ inputs.version-suffix }}
         WORKING_DIRECTORY: ${{ github.workspace }}/${{ inputs.working-directory }}
         CONTROL_PATH: ${{ inputs.control-path }}
         IGNORE_PATH: ${{ inputs.ignore-path }}

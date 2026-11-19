@@ -30,6 +30,13 @@ mirror of Cloudsmith `adi/external`) so ADI-specific packages such as
 The `version` input is validated against the Debian upstream-version pattern
 (must start with a digit; only `[A-Za-z0-9.+~-]`) and rejected otherwise.
 
+The package version is `<version>-1<version-suffix>`. Use `version-suffix` to
+tag builds per distribution so that packages for different targets do not share
+a filename (e.g. `+debian13` gives `1.2.3-1+debian13`). The suffix must start
+with `+` or `~` and contain only `[A-Za-z0-9.+~]`. Use `+` when the package must
+upgrade an already-installed `1.2.3-1`, since `~` sorts lower. The orig tarball
+keeps the plain upstream version (`<pkg>_1.2.3.orig.tar.gz`).
+
 The action does **not** mutate the caller's checked-out workspace: the build
 runs in an isolated temporary copy of the source, so `packaging/`, `.git`, and
 other files remain untouched for later workflow steps.
@@ -39,6 +46,7 @@ other files remain untouched for later workflow steps.
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `version` | yes | — | Version string, e.g. `1.2.3` |
+| `version-suffix` | no | `''` | Appended after the Debian revision, e.g. `+debian13` gives `1.2.3-1+debian13` |
 | `working-directory` | no | `.` | Path to the source (relative to `$GITHUB_WORKSPACE`) |
 | `control-path` | no | `packaging/debian` | Path to the debian control files/templates (relative to `working-directory`) |
 | `ignore-path` | no | `''` | Newline-separated paths to exclude from the orig tarball (beyond `.git` and `debian`) |
@@ -84,8 +92,8 @@ other files remain untouched for later workflow steps.
 
 The composite action runs on the host runner. For arm64/armhf builds, run the
 `build-deb.sh` script directly inside a Docker container (it accepts the same
-values via the `VERSION`, `WORKING_DIRECTORY`, `CONTROL_PATH`, and `IGNORE_PATH`
-environment variables):
+values via the `VERSION`, `VERSION_SUFFIX`, `WORKING_DIRECTORY`, `CONTROL_PATH`,
+and `IGNORE_PATH` environment variables):
 
 ```yaml
 - name: Build (arm64)

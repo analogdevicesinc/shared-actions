@@ -36,6 +36,16 @@ if ! [[ "$VERSION" =~ ^[0-9][A-Za-z0-9.+~-]*$ ]]; then
   echo "       (must start with a digit and contain only [A-Za-z0-9.+~-])" >&2
   exit 1
 fi
+# Optional suffix appended after the Debian revision (e.g. +debian13 gives
+# 1.2.3-1+debian13). It must not contain '-' (that would move the revision)
+# or '|' (the sed delimiter below).
+VERSION_SUFFIX="${VERSION_SUFFIX:-}"
+if [ -n "$VERSION_SUFFIX" ] && ! [[ "$VERSION_SUFFIX" =~ ^[+~][A-Za-z0-9.+~]*$ ]]; then
+  echo "ERROR: VERSION_SUFFIX '$VERSION_SUFFIX' is not a valid Debian revision suffix" >&2
+  echo "       (must start with + or ~ and contain only [A-Za-z0-9.+~])" >&2
+  exit 1
+fi
+DEB_VERSION="${VERSION}-1${VERSION_SUFFIX}"
 
 # 2. Validate the working directory exists, then enter it
 if [ ! -d "$WORKING_DIRECTORY" ]; then
@@ -56,7 +66,7 @@ if [ -z "$APP_NAME" ]; then
   echo "ERROR: Could not read Source: from $CONTROL_PATH/control" >&2
   exit 1
 fi
-echo "==> Package: $APP_NAME  Version: $VERSION"
+echo "==> Package: $APP_NAME  Version: $DEB_VERSION"
 
 # 5. Determine sudo
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
@@ -118,7 +128,7 @@ cd "$src_dir"
 echo "==> Processing templates..."
 ARCHITECTURE=$(dpkg --print-architecture)
 DATE_RFC="$(date -R)"
-sed -i "s|@VERSION@|${VERSION}-1|" debian/changelog
+sed -i "s|@VERSION@|${DEB_VERSION}|" debian/changelog
 sed -i "s|@DATE@|${DATE_RFC}|" debian/changelog
 sed -i "s|@ARCHITECTURE@|${ARCHITECTURE}|" debian/control
 
@@ -146,5 +156,5 @@ mkdir -p "$artifact_dir"
 cp -f ../*.deb "$artifact_dir/" 2>/dev/null || true
 cp -f ../*.dsc ../*.debian.tar.xz ../*.orig.tar.gz "$artifact_dir/" 2>/dev/null || true
 cp -f ../*.buildinfo ../*.changes "$artifact_dir/" 2>/dev/null || true
-echo "==> Build complete: $APP_NAME $VERSION"
+echo "==> Build complete: $APP_NAME $DEB_VERSION"
 ls -la "$artifact_dir/" 2>/dev/null || true
