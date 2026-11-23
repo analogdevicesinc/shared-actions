@@ -764,8 +764,12 @@ summary_details_table() {
   echo ""
   echo "| File | Issue |"
   echo "|------|-------|"
+  local issue
   for detail in "$@"; do
-    echo "| \`${detail%% →*}\` | ${detail#*→ } |"
+    issue="${detail#*→ }"
+    # A "|" would start a new table column; show joined values on separate lines.
+    issue="${issue// | /<br>}"
+    echo "| \`${detail%% →*}\` | ${issue} |"
   done
   echo ""
   echo "</details>"

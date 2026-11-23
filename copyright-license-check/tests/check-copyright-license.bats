@@ -914,3 +914,20 @@ print('vendored')" "2018"
   grep -q "Corp One" "${REPO}/github_output.txt"
   grep -q "Corp Two" "${REPO}/github_output.txt"
 }
+
+@test "summary lists every foreign copyright without breaking the table" {
+  setup_test_repo
+  set_env
+  export INPUT_COPYRIGHT_HOLDER="Analog Devices"
+  export INPUT_SUMMARY_OUTPUT=true
+  add_file "src/main.py" "# Copyright (c) 2015 Corp One.
+# Copyright (c) 2018 Corp Two.
+# SPDX-License-Identifier: GPL-2.0" "2018"
+
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  row="$(grep 'src/main.py' "${REPO}/github_summary.md" | head -1)"
+  [[ "${row}" == *"Corp One.<br>"*"Corp Two."* ]]
+  # exactly two cells: "| file | issue |"
+  [[ "$(printf '%s' "${row}" | tr -cd '|' | wc -c)" -eq 3 ]]
+}
