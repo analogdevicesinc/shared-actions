@@ -124,10 +124,62 @@ detect_repo_license
 #   allowed-licenses:
 #     - MIT
 #     - BSD-3-Clause  # vendored from project X
+#   rules:                       # per-file license rules, first match wins
+#     - match: ["*.tcl", "Makefile"]   # globs on path (case-insensitive)
+#       header-text: licenses/adibsd.txt   # full text that must appear in the header
+#       identifier: "Short identifier: ADIBSD"  # line that must appear in the header
 
 COPYRIGHT_CONFIG_FILE="${INPUT_COPYRIGHT_CONFIG:-".copyright-config.yml"}"
 CONFIG_PROJECT_LICENSE=""
 CONFIG_ALLOWED_LICENSES=()
+# Parallel arrays, one entry per rule. RULE_MATCH holds globs joined with "|".
+RULE_MATCH=()
+RULE_TEXT=()
+RULE_IDENT=()
+MATCHED_RULE=-1
+
+# "[a, 'b', \"c\"]" -> "a|b|c"
+parse_inline_list() {
+  local v
+  v="$(trim "$1")"
+  v="${v#[}"; v="${v%]}"
+  local out="" item
+  local -a items
+  IFS=',' read -ra items <<< "${v}"
+  for item in "${items[@]}"; do
+    item="$(unquote "$(trim "${item}")")"
+    [[ -n "${item}" ]] && out+="${out:+|}${item}"
+  done
+  printf '%s' "${out}"
+}
+
+unquote() {
+  local v="$1"
+  if [[ "${v}" =~ ^\"(.*)\"$ || "${v}" =~ ^\'(.*)\'$ ]]; then
+    v="${BASH_REMATCH[1]}"
+  fi
+  printf '%s' "${v}"
+}
+
+# Sets MATCHED_RULE to the first rule whose glob matches the path or basename
+# of $1, or -1 when none does.
+find_license_rule() {
+  local file="$1" base="${1##*/}" i pat
+  local -a pats
+  MATCHED_RULE=-1
+  shopt -s nocasematch
+  for (( i = 0; i < ${#RULE_MATCH[@]}; i++ )); do
+    IFS='|' read -ra pats <<< "${RULE_MATCH[i]}"
+    for pat in "${pats[@]}"; do
+      # shellcheck disable=SC2053
+      if [[ "${file}" == ${pat} || "${base}" == ${pat} ]]; then
+        MATCHED_RULE="${i}"
+        break 2
+      fi
+    done
+  done
+  shopt -u nocasematch
+}
 
 load_copyright_config() {
   if [[ ! -f "${COPYRIGHT_CONFIG_FILE}" ]]; then
@@ -136,7 +188,7 @@ load_copyright_config() {
 
   log_group "Loading config: ${COPYRIGHT_CONFIG_FILE}"
 
-  local in_allowed_list=false
+  local in_allowed_list=false in_rules=false
   while IFS= read -r line || [[ -n "${line}" ]]; do
     # Strip inline comments and trailing whitespace
     local stripped="${line%%#*}"
@@ -145,10 +197,38 @@ load_copyright_config() {
 
     if [[ "${stripped}" =~ ^project-license:[[:space:]]*(.*) ]]; then
       CONFIG_PROJECT_LICENSE="$(trim "${BASH_REMATCH[1]}")"
-      in_allowed_list=false
+      in_allowed_list=false; in_rules=false
       echo "  project-license: ${CONFIG_PROJECT_LICENSE}"
     elif [[ "${stripped}" =~ ^allowed-licenses:[[:space:]]*$ ]]; then
-      in_allowed_list=true
+      in_allowed_list=true; in_rules=false
+    elif [[ "${stripped}" =~ ^rules:[[:space:]]*$ ]]; then
+      in_rules=true; in_allowed_list=false
+    elif [[ "${in_rules}" == true ]]; then
+      # "- match: [...]" starts a rule; other keys belong to the current rule.
+      local body="${stripped}"
+      if [[ "${body}" =~ ^-[[:space:]]+(.*) ]]; then
+        RULE_MATCH+=(""); RULE_TEXT+=(""); RULE_IDENT+=("")
+        body="${BASH_REMATCH[1]}"
+      fi
+      if (( ${#RULE_MATCH[@]} == 0 )); then
+        log_error "Config rules: key outside of a rule entry: ${stripped}"
+        exit 1
+      fi
+      local last=$(( ${#RULE_MATCH[@]} - 1 ))
+      if [[ "${body}" =~ ^match:[[:space:]]*(.*) ]]; then
+        RULE_MATCH[last]="$(parse_inline_list "${BASH_REMATCH[1]}")"
+      elif [[ "${body}" =~ ^header-text:[[:space:]]*(.*) ]]; then
+        RULE_TEXT[last]="$(unquote "$(trim "${BASH_REMATCH[1]}")")"
+        if [[ ! -f "${RULE_TEXT[last]}" ]]; then
+          log_error "Config rules: header-text file not found: ${RULE_TEXT[last]}"
+          exit 1
+        fi
+      elif [[ "${body}" =~ ^identifier:[[:space:]]*(.*) ]]; then
+        RULE_IDENT[last]="$(unquote "$(trim "${BASH_REMATCH[1]}")")"
+      else
+        log_error "Config rules: unknown key: ${stripped}"
+        exit 1
+      fi
     elif [[ "${in_allowed_list}" == true && "${stripped}" =~ ^-[[:space:]]+(.*) ]]; then
       local val="$(trim "${BASH_REMATCH[1]}")"
       if [[ -n "${val}" ]]; then
@@ -160,15 +240,29 @@ load_copyright_config() {
     fi
   done < "${COPYRIGHT_CONFIG_FILE}"
 
-  echo "Loaded config: project-license='${CONFIG_PROJECT_LICENSE}', ${#CONFIG_ALLOWED_LICENSES[@]} allowed license(s)."
+  local i
+  for (( i = 0; i < ${#RULE_MATCH[@]}; i++ )); do
+    if [[ -z "${RULE_MATCH[i]}" || ( -z "${RULE_TEXT[i]}" && -z "${RULE_IDENT[i]}" ) ]]; then
+      log_error "Config rule #$((i + 1)) needs 'match' and at least one of 'header-text' / 'identifier'."
+      exit 1
+    fi
+    echo "  rule #$((i + 1)): match=[${RULE_MATCH[i]//|/, }] header-text='${RULE_TEXT[i]}' identifier='${RULE_IDENT[i]}'"
+  done
+
+  echo "Loaded config: project-license='${CONFIG_PROJECT_LICENSE}', ${#CONFIG_ALLOWED_LICENSES[@]} allowed license(s), ${#RULE_MATCH[@]} rule(s)."
   log_endgroup
 }
 
 load_copyright_config
 
+LICENSE_CHECK_ENABLED=false
+if [[ -n "${LICENSE_PATTERN}" ]] || (( ${#RULE_MATCH[@]} > 0 )); then
+  LICENSE_CHECK_ENABLED=true
+fi
+
 # ── Merge license allowlist ──────────────────────────────────────
-# Priority: .spdx-config.yml > action input > auto-detected repo license
-# If .spdx-config.yml defines allowed-licenses, use those (+ project-license).
+# Priority: .copyright-config.yml > action input > auto-detected repo license
+# If .copyright-config.yml defines allowed-licenses, use those (+ project-license).
 # Otherwise fall back to the valid-licenses action input.
 # The detected repo license is always added to the allowlist if one is active.
 
@@ -309,8 +403,8 @@ EXT_ARRAY=()
 for ext in "${RAW_EXTS[@]}"; do
   ext="$(trim "${ext}")"
   if [[ -n "${ext}" ]]; then
-    if [[ ! "${ext}" =~ ^[A-Za-z0-9]+$ ]]; then
-      log_error "Invalid file extension '${ext}'. Extensions must contain only alphanumeric characters."
+    if [[ ! "${ext}" =~ ^[A-Za-z0-9_-]+$ ]]; then
+      log_error "Invalid file extension '${ext}'. Entries must contain only letters, digits, '_' or '-'."
       exit 1
     fi
     EXT_ARRAY+=("${ext}")
@@ -322,16 +416,32 @@ if (( ${#EXT_ARRAY[@]} == 0 )); then
   exit 1
 fi
 
-# Build extension regex for PR mode filtering
-EXT_REGEX="\\.($(IFS='|'; echo "${EXT_ARRAY[*]}"))$"
+# Every entry matches files ending in ".<entry>". Entries containing an
+# uppercase letter (e.g. "Makefile") also match a file named exactly "<entry>",
+# so extension-less files can be scanned without changing how plain
+# lowercase extensions behave.
+EXT_NAMES="$(IFS='|'; echo "${EXT_ARRAY[*]}")"
+EXACT_ARRAY=()
+for ext in "${EXT_ARRAY[@]}"; do
+  [[ "${ext}" =~ [A-Z] ]] && EXACT_ARRAY+=("${ext}")
+done
+EXACT_NAMES="$(IFS='|'; echo "${EXACT_ARRAY[*]-}")"
 
-# Build find name args: -name *.ext1 -o -name *.ext2 ...
+EXT_REGEX="\\.(${EXT_NAMES})$"
+SCAN_REGEX_BODY=".*\\.(${EXT_NAMES})"
+if [[ -n "${EXACT_NAMES}" ]]; then
+  EXT_REGEX="(\\.(${EXT_NAMES})|(^|/)(${EXACT_NAMES}))$"
+  SCAN_REGEX_BODY="(.*\\.(${EXT_NAMES})|(.*/)?(${EXACT_NAMES}))"
+fi
+
+# Build find name args: -name *.ext1 -o -name *.ext2 [-o -name Exact] ...
 FIND_NAME_ARGS=()
 first=true
 for ext in "${EXT_ARRAY[@]}"; do
   [[ -z "${ext}" ]] && continue
   [[ "${first}" == true ]] && first=false || FIND_NAME_ARGS+=("-o")
   FIND_NAME_ARGS+=("-name" "*.${ext}")
+  [[ "${ext}" =~ [A-Z] ]] && FIND_NAME_ARGS+=("-o" "-name" "${ext}")
 done
 
 # Build find prune args for excluded directories
@@ -360,7 +470,7 @@ discover_and_filter_files() {
     SCAN_FILTER="${EXT_REGEX}"
     if [[ "${SCAN_PATH}" != "." ]]; then
       ESCAPED_PATH=$(printf '%s' "${SCAN_PATH%/}" | sed 's/[.[\*^$+?(){}|\\]/\\&/g')
-      SCAN_FILTER="^${ESCAPED_PATH}/.*${EXT_REGEX}"
+      SCAN_FILTER="^${ESCAPED_PATH}/${SCAN_REGEX_BODY}$"
     fi
     EXCLUDE_REGEX=""
     for dir in "${!SEEN_DIRS[@]}"; do
@@ -578,9 +688,80 @@ check_copyright_holder() {
 
 LICENSE_VALIDATION_DETAIL=""
 
+# Print a file's lines with comment decoration removed: leading comment
+# leaders (//, /*, *, #, ##, --), a trailing */, and banner-only lines are
+# dropped, whitespace is squeezed and 4-digit years / year ranges become
+# "<year>" so reference texts do not depend on a specific year.
+normalize_lines() {
+  sed -E \
+    -e 's/\r$//' \
+    -e 's/^[[:space:]]*(\/\/+|\/\*+|#+|--+|\*+)?[[:space:]]*//' \
+    -e 's/[[:space:]]*\*+\/[[:space:]]*$//' \
+    -e 's/[0-9]{4}([[:space:]]*[-,][[:space:]]*[0-9]{4})*/<year>/g' \
+    -e 's/[[:space:]]+/ /g' \
+    -e 's/[[:space:]]+$//' \
+  | grep -Ev '^[*#/=_-]*$' || true
+}
+
+# Join normalized lines into one whitespace-squeezed string.
+normalize_joined() {
+  normalize_lines | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
+}
+
+# Validate a file against config rule index $2 (see load_copyright_config).
+# Returns 0 ok, 1 required identifier missing, 2 license text mismatch.
+validate_file_rule() {
+  local file="$1" idx="$2"
+  local text_file="${RULE_TEXT[idx]}" ident="${RULE_IDENT[idx]}"
+  local window="${LICENSE_HEADER_LINES}"
+
+  if [[ -n "${text_file}" ]]; then
+    local ref_lines
+    ref_lines="$(wc -l < "${text_file}")"
+    (( ref_lines + 30 > window )) && window=$(( ref_lines + 30 ))
+  fi
+
+  local header_lines
+  header_lines="$(head -n "${window}" -- "${file}" 2>/dev/null | normalize_lines)" || true
+
+  if [[ -n "${ident}" ]] && ! printf '%s\n' "${header_lines}" | grep -qF -- "${ident}"; then
+    LICENSE_VALIDATION_DETAIL="Missing required line: ${ident}"
+    return 1
+  fi
+
+  if [[ -n "${text_file}" ]]; then
+    local header_joined ref_joined
+    header_joined="$(printf '%s\n' "${header_lines}" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g')"
+    ref_joined="$(normalize_joined < "${text_file}")"
+    if [[ "${header_joined}" != *"${ref_joined}"* ]]; then
+      local ref_line missing=""
+      while IFS= read -r ref_line; do
+        if [[ "${header_joined}" != *"${ref_line}"* ]]; then
+          missing="${ref_line}"
+          break
+        fi
+      done < <(normalize_lines < "${text_file}")
+      if [[ -n "${missing}" ]]; then
+        LICENSE_VALIDATION_DETAIL="License text (${text_file}) differs; first missing line: ${missing:0:80}"
+      else
+        LICENSE_VALIDATION_DETAIL="License text (${text_file}) not found in full/in order"
+      fi
+      return 2
+    fi
+  fi
+  return 0
+}
+
 validate_file_license() {
   local file="$1"
   LICENSE_VALIDATION_DETAIL=""
+
+  # A matching config rule takes precedence over license-pattern.
+  # MATCHED_RULE is set by find_license_rule in the scan loop.
+  if (( MATCHED_RULE >= 0 )); then
+    validate_file_rule "${file}" "${MATCHED_RULE}"
+    return $?
+  fi
 
   local license_line
   license_line="$(head -n "${LICENSE_HEADER_LINES}" -- "${file}" 2>/dev/null | grep -oPi "${LICENSE_PATTERN}" | head -n 1)" || true
@@ -624,8 +805,11 @@ if [[ -n "${LICENSE_PATTERN}" ]]; then
   if (( ${#VALID_LICENSES[@]} > 0 )); then
     echo "Allowed licenses:  ${VALID_LICENSES[*]}"
   fi
-else
+elif (( ${#RULE_MATCH[@]} == 0 )); then
   echo "License check:     disabled"
+fi
+if (( ${#RULE_MATCH[@]} > 0 )); then
+  echo "License rules:     ${#RULE_MATCH[@]} (from ${COPYRIGHT_CONFIG_FILE})"
 fi
 if [[ -n "${DETECTED_LICENSE}" ]]; then
   echo "Repo license:      ${DETECTED_LICENSE}"
@@ -670,14 +854,15 @@ for file in "${SOURCE_FILES[@]+"${SOURCE_FILES[@]}"}"; do
        ;;
   esac
 
-  # Check license (only if license-pattern is configured)
-  if [[ -n "${LICENSE_PATTERN}" ]]; then
+  # Check license (if license-pattern is configured or a config rule matches)
+  find_license_rule "${file}"
+  if [[ -n "${LICENSE_PATTERN}" || "${MATCHED_RULE}" -ge 0 ]]; then
     license_result=0
     validate_file_license "${file}" || license_result=$?
 
     case ${license_result} in
       1) MISSING_LICENSE_FILES+=("${file}")
-         log_warn "Missing SPDX-License-Identifier: ${file}"
+         log_warn "Missing license identifier: ${file}"
          file_has_error=true ;;
       2) INVALID_LICENSE_DETAILS+=("${file} → ${LICENSE_VALIDATION_DETAIL}")
          log_warn "Invalid license: ${file} (${LICENSE_VALIDATION_DETAIL})"
@@ -701,9 +886,9 @@ echo ""
 echo "Passed                        : ${PASSED_FILES}"
 echo "Missing copyright header     : ${MISSING_COUNT}"
 echo "Wrong copyright years         : ${WRONG_YEARS_COUNT}"
-if [[ -n "${LICENSE_PATTERN}" ]]; then
-  echo "Missing SPDX-License-Identifier: ${MISSING_LICENSE_COUNT}"
-  echo "Invalid license identifier    : ${INVALID_LICENSE_COUNT}"
+if [[ "${LICENSE_CHECK_ENABLED}" == true ]]; then
+  echo "Missing license identifier     : ${MISSING_LICENSE_COUNT}"
+  echo "Invalid license               : ${INVALID_LICENSE_COUNT}"
 fi
 if [[ -n "${COPYRIGHT_HOLDER}" ]]; then
   echo "Third-party copyright (review): ${THIRD_PARTY_COUNT}"
@@ -795,9 +980,9 @@ if [[ "${SUMMARY_OUTPUT}" == "true" ]]; then
     echo "| Files passed | **${PASSED_FILES}** |"
     echo "| Missing copyright header | **${MISSING_COUNT}** |"
     echo "| Wrong copyright years | **${WRONG_YEARS_COUNT}** |"
-    if [[ -n "${LICENSE_PATTERN}" ]]; then
-      echo "| Missing SPDX-License-Identifier | **${MISSING_LICENSE_COUNT}** |"
-      echo "| Invalid license identifier | **${INVALID_LICENSE_COUNT}** |"
+    if [[ "${LICENSE_CHECK_ENABLED}" == true ]]; then
+      echo "| Missing license identifier | **${MISSING_LICENSE_COUNT}** |"
+      echo "| Invalid license | **${INVALID_LICENSE_COUNT}** |"
     fi
     if [[ -n "${COPYRIGHT_HOLDER}" ]]; then
       echo "| Third-party copyright (review) | **${THIRD_PARTY_COUNT}** |"
@@ -812,13 +997,13 @@ if [[ "${SUMMARY_OUTPUT}" == "true" ]]; then
       summary_details_table "Files with wrong copyright years" "${WRONG_YEAR_DETAILS[@]}"
     fi
 
-    if [[ -n "${LICENSE_PATTERN}" ]]; then
+    if [[ "${LICENSE_CHECK_ENABLED}" == true ]]; then
       if (( MISSING_LICENSE_COUNT > 0 )); then
-        summary_details_list "Files missing SPDX-License-Identifier" "${MISSING_LICENSE_FILES[@]}"
+        summary_details_list "Files missing license identifier" "${MISSING_LICENSE_FILES[@]}"
       fi
 
       if (( INVALID_LICENSE_COUNT > 0 )); then
-        summary_details_table "Files with invalid license identifier" "${INVALID_LICENSE_DETAILS[@]}"
+        summary_details_table "Files with invalid license" "${INVALID_LICENSE_DETAILS[@]}"
       fi
     fi
 

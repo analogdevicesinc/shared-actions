@@ -66,7 +66,7 @@ inputs:
   license-pattern:
     description: >-
       Perl-compatible regex to match a license identifier in the file header.
-      Leave empty to skip license checking. Default matches SPDX-License-Identifier.
+      Leave empty to skip license checking, except for files matched by a `rules:` entry in the copyright config. Default matches SPDX-License-Identifier.
     required: false
     default: 'SPDX-License-Identifier:\s+\S+'
   license-header-lines:
@@ -140,7 +140,7 @@ outputs:
     description: 'Number of files with incorrect copyright years'
     value: ${{ steps.scan.outputs.wrong_years_count }}
   files-missing-license:
-    description: 'Number of files missing SPDX-License-Identifier'
+    description: 'Number of files missing the license identifier'
     value: ${{ steps.scan.outputs.missing_license_count }}
   files-invalid-license:
     description: 'Number of files with a license identifier not in the valid-licenses list'
@@ -152,10 +152,10 @@ outputs:
     description: 'List of files with incorrect copyright years'
     value: ${{ steps.scan.outputs.wrong_years_files }}
   missing-license-list:
-    description: 'List of files missing SPDX-License-Identifier'
+    description: 'List of files missing the license identifier'
     value: ${{ steps.scan.outputs.missing_license_files }}
   invalid-license-list:
-    description: 'List of files with invalid license identifiers'
+    description: 'List of files with an invalid license (identifier or text), with details'
     value: ${{ steps.scan.outputs.invalid_license_files }}
   files-third-party-copyright:
     description: 'Number of files with a non-matching copyright holder'

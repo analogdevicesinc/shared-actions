@@ -165,7 +165,7 @@ A file can carry several copyright lines. With `copyright-holder` set, all of th
 | `summary-output` | Whether to output a GitHub Actions job summary | `true` |
 | `full-scan` | Scan all files. When `false`, only scan changed files in PR | `false` |
 | `copyright-pattern` | Regex to match the copyright line | `Copyright\s*(?:©\|\(c\)\|)\s*(\d{4})\s*(?:[-,]\s*(\d{4}))?,?\s+.+` |
-| `license-pattern` | Regex to match the license line. Empty to skip license checking | `SPDX-License-Identifier:\s+\S+` |
+| `license-pattern` | Regex to match the license line. Empty to skip license checking (files matched by a config `rules:` entry are still checked) | `SPDX-License-Identifier:\s+\S+` |
 | `license-header-lines` | Number of lines from top of file to scan for license | `30` |
 | `valid-licenses` | Comma-separated list of accepted SPDX identifiers. Merged with `.copyright-config.yml`. Empty to accept any | `''` |
 | `copyright-holder` | Expected copyright holder (e.g. `Analog Devices`). Files with a different holder warn instead of fail. Empty to skip | `''` |
@@ -183,7 +183,7 @@ A file can carry several copyright lines. With `copyright-holder` set, all of th
 | `total-files-scanned` | Total number of source files scanned |
 | `files-missing-copyright` | Number of files missing copyright header |
 | `files-wrong-years` | Number of files with incorrect copyright years |
-| `files-missing-license` | Number of files missing SPDX-License-Identifier |
+| `files-missing-license` | Number of files missing the license identifier |
 | `files-invalid-license` | Number of files with a license identifier not in the valid-licenses list |
 | `missing-files-list` | Newline-separated list of files missing copyright |
 | `wrong-years-list` | Newline-separated list of files with wrong years |
@@ -226,6 +226,27 @@ The allowlist is merged from these sources (all optional):
 4. Auto-detected repo license (added automatically if any allowlist is active)
 
 If none of these are set, any `SPDX-License-Identifier` is accepted.
+
+### Per-file license rules (`rules:`)
+
+For repos whose headers are not a single `SPDX-License-Identifier:` line (for example full license texts that differ per file type), add an ordered `rules:` list to `.copyright-config.yml`. The first rule whose `match` globs fit a file's path or basename (case-insensitive) decides how that file's license is checked. Files matching no rule keep using `license-pattern` / the allowlist. Rules work even when `license-pattern` is empty.
+
+```yaml
+rules:
+  - match: ["*jesd*.v", "*jesd*.sv"]
+    header-text: .github/licenses/adijesd204.txt   # full text that must appear in the header
+    identifier: "Short identifier: ADIJESD204"      # line that must appear in the header
+  - match: ["*.tcl", "*.xdc"]
+    header-text: .github/licenses/adibsd.txt
+    identifier: "Short identifier: ADIBSD"
+  - match: ["Makefile", "*.mk"]
+    identifier: "SPDX short identifier: BSD-1-Clause"
+```
+
+- `header-text` is a path (from the repo root) to a reference text. The file's header must contain it, in order and without gaps, after normalization: comment leaders (`//`, `/*`, `*`, `#`, `--`), banner lines and whitespace differences are ignored, and any `YYYY` or `YYYY-YYYY` is treated as `<year>`. Leave the copyright line out of the reference. The header window grows to fit the text.
+- `identifier` is a literal line that must appear in the header (after the same comment-leader stripping).
+- A rule needs `match` and at least one of `header-text` / `identifier`. A missing identifier counts as a missing license; a text mismatch counts as an invalid license, and the summary shows the first missing line.
+- Every `file-extensions` entry matches `*.<entry>`. Entries containing an uppercase letter, such as `Makefile`, also match a file named exactly that, so extension-less files can be scanned. Plain lowercase entries (`sh`, `v`) never match a bare file name.
 
 ## Copyright Year Validation
 
@@ -309,6 +330,8 @@ The action scans the following file extensions by default:
 - **Devicetree**: dts, dtsi, dtso
 - **SQL**: sql
 - **CSS**: scss, css
+
+Other types are opt-in through `file-extensions`, for example the extra HDL types `ttcl`, `pl`, `xdc`, `sdc`, `mk` and the extension-less `Makefile` (see [Per-file license rules](#per-file-license-rules-rules)).
 
 ## Default Excludes
 
