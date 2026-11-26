@@ -67,7 +67,7 @@ runs:
         # Warn on won't run
         echo "::warning ::llm: Input 'api-key' empty, won't run"
 
-    - uses: analogdevicesinc/doctools/checkout@action
+    - uses: analogdevicesinc/shared-actions/checkout@main
       id: checkout
       if: ${{ env.LLM_AGENT_RUN == 'true' && inputs.ref != '' }}
       with:
@@ -75,13 +75,13 @@ runs:
         gh-token: ${{ inputs.gh-token }}
         path: ${{ inputs.checkout-path }}
 
-    - uses: analogdevicesinc/doctools/gh-collect-annotations@action
+    - uses: analogdevicesinc/shared-actions/gh-collect-annotations@main
       if: ${{ env.LLM_AGENT_RUN == 'true' && inputs.ref != '' }}
       with:
         ref: ${{ inputs.ref }}
         run-id: ${{ inputs.run-id }}
 
-    - uses: analogdevicesinc/doctools/gh-collect-comments@action
+    - uses: analogdevicesinc/shared-actions/gh-collect-comments@main
       if: ${{ env.LLM_AGENT_RUN == 'true' && inputs.ref != '' }}
       with:
         ref: ${{ inputs.ref }}

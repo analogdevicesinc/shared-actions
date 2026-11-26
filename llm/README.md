@@ -6,7 +6,7 @@ Runs a [pi](https://pi.dev) agent review on a branch, tag, PR number, or SHA.
 Usage:
 
 ```
-- uses: analogdevicesinc/doctools/llm@action
+- uses: analogdevicesinc/shared-actions/llm@main
   with:
     ref: ${{ inputs.ref }}
     prompt-file: ${{ env.prompt_file }}
