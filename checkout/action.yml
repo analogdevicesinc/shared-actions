@@ -1,0 +1,407 @@
+name: Git Checkout
+description: A git checkout for local runners
+
+inputs:
+  repository:
+    description: "Repository to checkout"
+    default: ${{ github.repository }}
+  ref:
+    description: "The branch, tag, SHA, or PR number (e.g. 123 or pull/123) to resolve"
+    default: ${{ github.sha }}
+  gh-token:
+    description: "GitHub Token"
+    default: ${{ github.token }}
+  path:
+    description: "Path to checkout"
+    default: '.'
+  lfs:
+    description: "Enable Git LFS"
+    default: 'false'
+
+outputs:
+  pr:
+    description: "Pull request number"
+    value: ${{ steps.get_pr.outputs.pr }}
+  head_ref:
+    description: "Pull request source branch name"
+    value: ${{ steps.pr_context.outputs.head_ref || steps.get_pr.outputs.head_ref }}
+  base_ref:
+    description: "Pull request target branch name"
+    value: ${{ steps.pr_context.outputs.base_ref || steps.get_pr.outputs.base_ref }}
+  head_sha:
+    description: "Head commit sha"
+    value: ${{ steps.checkout.outputs.head_sha }}
+  base_sha:
+    description: "Base commit sha"
+    value: ${{ steps.checkout.outputs.base_sha }}
+  checkout_fail_pr_rebase:
+    description: "Set to true if PR rebase failed"
+    value: ${{ steps.checkout.outputs.checkout_fail_pr_rebase }}
+  checkout_fail_pr_fixup:
+    description: "Set to true if PR fixup failed"
+    value: ${{ steps.checkout.outputs.checkout_fail_pr_fixup }}
+
+# Behaviour:
+# Event:
+# - dispatch:
+#   - lookup pr associated with the ref, if found, pr flow, else, branch flow.
+# - push:
+#   - fetch til base-sha if not force pushed or new branch, if it is, fixed depth (branch flow).
+# - pull request:
+#   - The history is rebased into the target branch head (fail -> checkout_fail_pr_rebase)
+#   - Fixup commits are auto squashed (fail -> checkout_fail_pr_fixup)
+#
+# Note: for dispatch a checkout at the branch head, it
+# will fall into the pr flow if a pull request is associated with the
+# github.sha and opened.
+
+runs:
+  using: composite
+  steps:
+    - name: Use pull request context
+      id: pr_context
+      if: ${{ github.event_name == 'pull_request' && inputs.repository == github.repository && inputs.ref == github.sha }}
+      shell: bash
+      run: |
+        # Use pull request context
+        echo "merge_commit_sha=${{ github.sha }}" >> "$GITHUB_ENV"
+        echo "pr=${{ github.event.pull_request.number }}" >> "$GITHUB_ENV"
+        echo "head_ref=${{ github.head_ref }}" >> "$GITHUB_ENV"
+        echo "base_ref=${{ github.base_ref }}" >> "$GITHUB_ENV"
+        echo "head_ref=${{ github.head_ref }}" >> "$GITHUB_OUTPUT"
+        echo "base_ref=${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+
+        pr_base_sha=${{ github.event.pull_request.base.sha }}
+        pr_head_sha=${{ github.event.pull_request.head.sha }}
+        compare=$(curl -s \
+          -H "Authorization: Bearer ${{ inputs.gh-token }}" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/${{ github.repository }}/compare/$pr_base_sha...$pr_head_sha" \
+          | jq '{behind_by, ahead_by}')
+        ahead_by=$(echo "$compare" | jq '.ahead_by // empty')
+        behind_by=$(echo "$compare" | jq '.behind_by // empty')
+        if [[ -n "$ahead_by" ]] && [[ -n "$behind_by" ]]; then
+          fetch_depth=$(( ahead_by + behind_by + 2 ))
+        fi
+
+        echo "fetch_depth=$fetch_depth" >> "$GITHUB_ENV"
+
+    # requires pull_requests: read
+    - name: Resolve ref to pr number and merge commit sha
+      id: get_pr
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.repository == github.repository }}
+      shell: bash
+      run: |
+        # Resolve ref to pr number and merge commit sha
+        [[ "${{ runner.debug }}" == "1" ]] && set -x
+
+        ref="${{ inputs.ref }}"
+        ref="${ref//[[:space:]]/}"
+        ref="${ref#\#}"
+        repository="${{ inputs.repository }}"
+
+        head_ref=
+        base_ref=
+        resp=
+        pr_json=
+        pr=
+
+        if [[ "${{ inputs.repository }}" =~ ^(git@|ssh://|https://) ]]; then
+          exit 0
+        fi
+
+        if ! [[ "$ref" =~ ^([0-9]+|pull/[0-9]+)(/head)?$ ]]; then
+          # branch/commit
+
+          # try branch
+          branch_="${ref#refs/heads/}"
+          [[ "$branch_" == *":"* ]] || {
+            owner="${repository%/*}"
+            branch_="$owner:$branch_"
+          }
+          # some-user:my-fix
+          resp=$(curl -s \
+            -H "Authorization: Bearer ${{ inputs.gh-token }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$repository/pulls?head=$branch_&state=open")
+
+          status=$(echo "$resp" | jq -r '.status? // empty')
+          [[ "$status" == "403" ]] && echo "::notice ::checkout: List pull requests requires pull_requests read permission." || :
+          [[ -n "$status" ]] || pr_json=$(echo "$resp" | jq '.[0] // empty')
+
+          if [[ -z "$pr_json" ]]; then
+            # try sha
+            sha="$ref"
+            resp=$(curl -s \
+              -H "Authorization: Bearer ${{ inputs.gh-token }}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$repository/commits/$sha/pulls")
+
+            status=$(echo "$resp" | jq -r '.status? // empty')
+            # For the corner case of a dispatch with a sha that may resolve to a pr,
+            # pick pr only if it is open.
+            [[ -n "$status" ]] || pr_json=$(echo "$resp" | jq 'map(select(.state == "open"))[0] // empty')
+          fi
+
+          pr=$(echo "$pr_json" | jq -r '.number // empty')
+        else
+          # pr number
+          pr="${ref#pull/}"
+          pr="${pr%/head}"
+        fi
+
+        if [[ -n "$pr" ]]; then
+          resp=$(curl -s \
+            -H "Authorization: Bearer ${{ inputs.gh-token }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$repository/pulls/$pr")
+          status=$(echo "$resp" | jq -r '.status? // empty')
+          if [[ "$status" == "404" ]]; then
+            # does not exist
+            pr=""
+          else
+            merge_commit_sha=$(echo "$resp" | jq -r '.merge_commit_sha')
+            head_ref=$(echo "$resp" | jq -r '.head.ref // empty')
+            base_ref=$(echo "$resp" | jq -r '.base.ref // empty')
+            pr_base_sha=$(echo "$resp" | jq -r '.base.sha')
+            pr_head_sha=$(echo "$resp" | jq -r '.head.sha')
+            if [[ "$merge_commit_sha" == "null" ]]; then
+              # has conflicts
+              merge_commit_sha=""
+              echo "::warning ::Pull request $pr has merge conflicts, checking out $pr_head_sha."
+            fi
+            compare=$(curl -s \
+              -H "Authorization: Bearer ${{ inputs.gh-token }}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$repository/compare/$pr_base_sha...$pr_head_sha" \
+              | jq '{behind_by, ahead_by}')
+            ahead_by=$(echo "$compare" | jq '.ahead_by // empty')
+            behind_by=$(echo "$compare" | jq '.behind_by // empty')
+            if [[ -n "$ahead_by" ]] && [[ -n "$behind_by" ]]; then
+              fetch_depth=$(( ahead_by + behind_by + 2 ))
+            fi
+          fi
+        fi
+
+        echo "pr=$pr" >> "$GITHUB_OUTPUT"
+        echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
+        echo "base_ref=$base_ref" >> "$GITHUB_OUTPUT"
+        echo "pr=$pr" >> "$GITHUB_ENV"
+        echo "fetch_depth=$fetch_depth" >> "$GITHUB_ENV"
+        echo "merge_commit_sha=$merge_commit_sha" >> "$GITHUB_ENV"
+        echo "pr_base_sha=$pr_base_sha" >> "$GITHUB_ENV"
+        echo "pr_head_sha=$pr_head_sha" >> "$GITHUB_ENV"
+        echo "head_ref=$head_ref" >> "$GITHUB_ENV"
+        echo "base_ref=$base_ref" >> "$GITHUB_ENV"
+
+
+    - name: Prepare git
+      shell: bash
+      run: |
+        # Prepare git
+        [[ "${{ runner.debug }}" == "1" ]] && set -x
+        mkdir -p "${{ inputs.path }}" ; cd "${{ inputs.path }}"
+        if command -v git-lfs >/dev/null 2>&1; then
+          if [ "${{ inputs.lfs }}" = "true" ]; then
+            git lfs install
+          else
+            git lfs install --skip-smudge
+          fi
+        elif [ "${{ inputs.lfs }}" = "true" ]; then
+          echo "::warning ::Git LFS set to true, but git-lfs is not installed."
+        fi
+        if [[ "${{ inputs.repository }}" =~ ^(git@|ssh://|https://) ]]; then
+          url="${{ inputs.repository }}"
+          org_repository=$(echo "${{ inputs.repository }}" | sed -E 's|.*[:/]([^/]+/[^/.]+)(\.git)?$|\1|')
+        else
+          url="https://x-access-token:${{ inputs.gh-token }}@github.com/${{ inputs.repository }}.git"
+          org_repository="${{ inputs.repository }}"
+        fi
+
+        if [[ -f .git/shallow.lock ]] || [[ -f .git/index.lock ]]; then
+          rm -rf -- ..?* .[!.]* *
+        fi
+
+        if [[ ! -d .git ]]; then
+          echo "git init"
+          git init --initial-branch=trunk .
+          git config core.pager cat
+          git remote add origin "$url"
+          local_ref="/mnt/git/$org_repository.git"
+          if [[ -d $local_ref ]]; then
+            git remote add local "file://$local_ref"
+            git fetch local --depth 10
+            git remote rm local
+          fi
+        else
+          echo "git reset"
+          git config core.pager cat
+          git remote set-url origin "$url"
+
+          git am --abort 2>/dev/null || true
+          git merge --abort 2>/dev/null || true
+          git rebase --abort 2>/dev/null || true
+          git revert --abort 2>/dev/null || true
+          git cherry-pick --abort 2>/dev/null || true
+          git bisect reset 2>/dev/null || true
+          git stash clear || true
+
+          git reset --hard --quiet
+          git clean -ffdx --quiet .
+
+          git switch -d 2>/dev/null || true
+          echo "clean-up branches"
+          branches=$((git branch || true) | (grep -v ^'*' || true))
+          if [[ "$branches" ]]; then
+            git branch -D $branches || true
+          fi
+        fi
+
+        git switch -C trunk
+
+        if [[ -z "$(git config user.name)"  ]]; then
+          git config user.name "github-actions[bot]"
+        fi
+        if [[ -z "$(git config user.email)"  ]]; then
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+        fi
+        git config gc.auto 0
+        git config http.postBuffer 157286400
+
+    - name: Checkout
+      id: checkout
+      shell: bash
+      run: |
+        # Checkout
+        [[ "${{ runner.debug }}" == "1" ]] && set -x
+        cd "${{ inputs.path }}"
+
+        repository="${{ inputs.repository }}"
+        fetch_depth="${{ env.fetch_depth }}"
+        pr="${{ env.pr }}"
+        merge_commit_sha="${{ env.merge_commit_sha }}"
+        pr_base_sha="${{ env.pr_base_sha }}"
+        pr_head_sha="${{ env.pr_head_sha }}"
+        rename_branch="${{ env.head_ref || github.ref_name }}"
+        ref="${{ inputs.ref }}"
+        ref="${ref//[[:space:]]/}"
+
+        [[ -n "$fetch_depth" ]] || fetch_depth=5
+
+        # --empty was added on git 2.26.0
+        if git rebase -help 2>&1 | grep -q "\--empty"; then
+          keep_empty="--empty=keep"
+        else
+          keep_empty="--keep-empty"
+        fi
+
+        git_fetch_depth () {
+          echo "fetch $fetch_depth commits"
+          if [[ $fetch_depth -gt 0 ]]; then
+            git fetch origin --depth="$fetch_depth" "$1"
+          else
+            git fetch origin "$1"
+          fi
+          [[ $fetch_depth -gt 500 ]] && fetch_depth=500 || fetch_depth=$((fetch_depth * 2))
+        }
+        if [[ -n "$pr" ]] && [[ -z "$merge_commit_sha" ]]; then
+          mode="pr"
+          git fetch origin --depth=$fetch_depth "$pr_head_sha" "$pr_base_sha"
+          head_sha=$(git rev-parse "$pr_head_sha")
+          base_sha=$(git merge-base "$pr_base_sha" "$head_sha") \
+            || base_sha=$(git rev-parse "$head_sha~")
+          echo "checkout_fail_pr_rebase=true" >> "$GITHUB_ENV"
+          echo "checkout_fail_pr_rebase=true" >> "$GITHUB_OUTPUT"
+
+        elif [[ -n "$pr" ]]; then
+          mode="pr"
+          # use merge commit sha because refs/pull/*/merge exist only if pr is open
+          git fetch origin --depth=$fetch_depth "$merge_commit_sha"
+          fetch_head=$(git rev-parse FETCH_HEAD)
+
+          if [[ $(git cat-file -p "$fetch_head" | grep -c "^parent ") -ge 2 ]]; then
+            while ! git merge-base $fetch_head^1 $fetch_head^2 2>/dev/null ; do
+              git_fetch_depth "$fetch_head"
+            done
+            head_sha=$(git rev-parse $fetch_head^2)
+            into_head_sha=$(git rev-parse $fetch_head^1)
+            base_sha=$(git rev-list $into_head_sha..$head_sha | tail -n 1)
+            base_sha=$(git rev-parse $base_sha~)
+          else
+            # single commit pr
+            head_sha=$(git rev-parse $fetch_head)
+            base_sha=$(git rev-parse $head_sha~)
+          fi
+
+        else
+          mode="branch"
+          if [[ ! "${{ github.event.before }}" =~ "0000000000000000" ]] && \
+             [[ "${{ github.event.forced }}" == "false" ]] && \
+             [[ "${{ inputs.repository }}" == "${{ github.repository }}" ]] && \
+             [[ "$ref" == "${{ github.sha }}" ]]; then
+            head_sha="${{ github.sha }}"
+            base_sha="${{ github.event.before }}"
+            while ! git merge-base --is-ancestor $base_sha~  $head_sha 2>/dev/null ; do
+              git_fetch_depth "$head_sha"
+            done
+          else
+            git fetch origin --depth=2 "$ref"
+            head_sha=$(git rev-parse FETCH_HEAD)
+            base_sha=$(git rev-parse $head_sha~) || true
+          fi
+        fi
+
+        git reset --hard $head_sha
+
+        if [[ "$mode" == "pr" && -n "$into_head_sha" ]]; then
+          # rebase into
+          git rebase --rebase-merges "$keep_empty" \
+            "$into_head_sha" "$head_sha" && {
+            head_sha=$(git rev-parse HEAD)
+            base_sha=$into_head_sha
+          } || {
+            git rebase --abort
+            echo "checkout_fail_pr_rebase=true" >> "$GITHUB_ENV"
+            echo "checkout_fail_pr_rebase=true" >> "$GITHUB_OUTPUT"
+          }
+
+          # apply fixups
+          git log --oneline --pretty=format:'%s' $base_sha..$head_sha | grep -q ^fixup! && {
+            git rebase $keep_empty --rebase-merges --autosquash $base_sha \
+              || git rebase --abort && {
+              head_sha=$(git rev-parse HEAD)
+            } || {
+              git rebase --abort
+              echo "checkout_fail_pr_fixup=true" >> "$GITHUB_ENV"
+              echo "checkout_fail_pr_fixup=true" >> "$GITHUB_OUTPUT"
+            }
+          } || true
+        fi
+
+        echo "commits:"
+        git log --oneline --reverse $base_sha..$head_sha
+        echo "touched files:"
+        git --no-pager diff --name-only $base_sha..$head_sha
+
+        git branch -m "$rename_branch" 2>/dev/null || true
+
+        echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+        echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+        echo "head_sha=$head_sha" >> "$GITHUB_ENV"
+        echo "base_sha=$base_sha" >> "$GITHUB_ENV"
+
+    - name: Report state
+      shell: bash
+      run: |
+        # Report state
+        cd "${{ inputs.path }}"
+        df -h .
+        git show HEAD --name-only
+        git status
+
+    - name: Finish
+      shell: bash
+      run: |
+        # Finish
+        cd "${{ inputs.path }}"
+        git config --unset http.postBuffer
