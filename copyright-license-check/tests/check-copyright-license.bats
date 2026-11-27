@@ -931,3 +931,196 @@ print('vendored')" "2018"
   # exactly two cells: "| file | issue |"
   [[ "$(printf '%s' "${row}" | tr -cd '|' | wc -c)" -eq 3 ]]
 }
+
+# ── License rules (config `rules:`) ──────────────────────────────
+
+# Reference license text used by the rule tests.
+rule_text() {
+  printf '%s\n' \
+    "Redistribution and use in source and binary forms, with or without modification," \
+    "are permitted provided that the following conditions are met:" \
+    "    - Neither the name of Analog Devices, Inc. nor the names of its" \
+    "      contributors may be used to endorse or promote products."
+}
+
+# Write the license body with a comment leader ($1) around it.
+rule_body() {
+  local lead="$1"
+  rule_text | sed "s|^|${lead} |"
+}
+
+setup_rules_repo() {
+  setup_test_repo
+  set_env
+  export LICENSE_PATTERN=""
+  export INPUT_FILE_EXTENSIONS="tcl,v,vhd,mk,Makefile"
+  mkdir -p licenses
+  rule_text > licenses/adibsd.txt
+  cat > .copyright-config.yml <<'YML'
+rules:
+  - match: ["*jesd*.v"]
+    identifier: "Short identifier: ADIJESD204"
+  - match: ["*.tcl", "*.v"]
+    header-text: licenses/adibsd.txt
+    identifier: "Short identifier: ADIBSD"
+  - match: [Makefile, "*.mk"]
+    identifier: "SPDX short identifier: BSD-1-Clause"
+YML
+  git add -A && git commit -q -m config
+}
+
+@test "rules: full text with '#' leaders and varying years passes" {
+  setup_rules_repo
+  add_file "a.tcl" "## Copyright (C) $(date +%Y) Analog Devices, Inc.
+## Short identifier: ADIBSD
+$(rule_body '##')
+puts hi"
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+}
+
+@test "rules: full text with '//' leaders passes for verilog" {
+  setup_rules_repo
+  add_file "m.v" "// Copyright (C) $(date +%Y) Analog Devices, Inc.
+// Short identifier: ADIBSD
+$(rule_body '//')
+module m; endmodule"
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+}
+
+@test "rules: truncated license text fails as invalid license" {
+  setup_rules_repo
+  add_file "a.tcl" "## Copyright (C) $(date +%Y) Analog Devices, Inc.
+## Short identifier: ADIBSD
+## Redistribution and use in source and binary forms, with or without modification,
+puts hi"
+  run bash "${SCRIPT}"
+  [[ "${status}" -ne 0 ]]
+  [[ "$(get_output invalid_license_count)" == "1" ]]
+  [[ "${output}" == *"first missing line"* ]]
+}
+
+@test "rules: missing required identifier counts as missing license" {
+  setup_rules_repo
+  add_file "a.tcl" "## Copyright (C) $(date +%Y) Analog Devices, Inc.
+$(rule_body '##')
+puts hi"
+  run bash "${SCRIPT}"
+  [[ "${status}" -ne 0 ]]
+  [[ "$(get_output missing_license_count)" == "1" ]]
+}
+
+@test "rules: first matching rule wins (jesd before generic .v)" {
+  setup_rules_repo
+  add_file "rtl/axi_jesd204_tx.v" "// Copyright (C) $(date +%Y) Analog Devices, Inc.
+// Short identifier: ADIJESD204
+module j; endmodule"
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+}
+
+@test "rules: identifier-only rule matches Makefile by exact name" {
+  setup_rules_repo
+  add_file "sub/Makefile" "## Copyright (c) $(date +%Y) Analog Devices, Inc.
+## SPDX short identifier: BSD-1-Clause
+all:"
+  add_file "sub/lib.mk" "## Copyright (c) $(date +%Y) Analog Devices, Inc.
+all:"
+  run bash "${SCRIPT}"
+  [[ "${status}" -ne 0 ]]
+  [[ "$(get_output total_scanned)" == "2" ]]
+  [[ "$(get_output missing_license_count)" == "1" ]]
+}
+
+@test "rules: files matching no rule use license-pattern as before" {
+  setup_rules_repo
+  export LICENSE_PATTERN='SPDX-License-Identifier:\s+\S+'
+  add_file "x.vhd" "-- Copyright (C) $(date +%Y) Analog Devices, Inc.
+-- SPDX-License-Identifier: Apache-2.0"
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+}
+
+@test "rules: rule without match or without checks is rejected" {
+  setup_test_repo
+  set_env
+  printf 'rules:\n  - identifier: "x"\n' > .copyright-config.yml
+  run bash "${SCRIPT}"
+  [[ "${status}" -ne 0 ]]
+  [[ "${output}" == *"needs 'match'"* ]]
+}
+
+@test "rules: missing header-text file is rejected" {
+  setup_test_repo
+  set_env
+  printf 'rules:\n  - match: ["*.py"]\n    header-text: nope.txt\n' > .copyright-config.yml
+  run bash "${SCRIPT}"
+  [[ "${status}" -ne 0 ]]
+  [[ "${output}" == *"header-text file not found"* ]]
+}
+
+@test "changed-files mode selects Makefile by basename" {
+  setup_rules_repo
+  add_file "Makefile" "## Copyright (c) $(date +%Y) Analog Devices, Inc.
+## SPDX short identifier: BSD-1-Clause"
+  export INPUT_FULL_SCAN=false
+  export CHANGED_FILES=$'Makefile\nREADME.md'
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output total_scanned)" == "1" ]]
+}
+
+@test "lowercase extension entries do not match a bare file of that name" {
+  setup_test_repo
+  set_env
+  export INPUT_FILE_EXTENSIONS="sh,py,Makefile"
+  add_file "sh" "no header here"
+  add_file "sub/py" "no header here"
+  add_file "Makefile" "# Copyright (c) $(date +%Y) Analog Devices, Inc.
+# SPDX-License-Identifier: Apache-2.0"
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output total_scanned)" == "1" ]]
+}
+
+@test "changed-files mode: lowercase entry ignores bare name, scan-path still works" {
+  setup_test_repo
+  set_env
+  export INPUT_FILE_EXTENSIONS="sh,Makefile"
+  export INPUT_FULL_SCAN=false INPUT_SCAN_PATH="lib"
+  add_file "lib/Makefile" "# Copyright (c) $(date +%Y) Analog Devices, Inc.
+# SPDX-License-Identifier: Apache-2.0"
+  add_file "lib/a.sh" "# Copyright (c) $(date +%Y) Analog Devices, Inc.
+# SPDX-License-Identifier: Apache-2.0"
+  export CHANGED_FILES=$'lib/Makefile\nlib/a.sh\nlib/sh\nother/Makefile'
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output total_scanned)" == "2" ]]
+}
+
+@test "rules: repo license detection is skipped when rules are configured" {
+  setup_rules_repo
+  printf 'SPDX-License-Identifier: Apache-2.0\n' > LICENSE
+  git add LICENSE && git commit -q -m license
+  add_file "a.tcl" "## Copyright (C) $(date +%Y) Analog Devices, Inc.
+## Short identifier: ADIBSD
+$(rule_body '##')
+puts hi"
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "${output}" == *"Skipping repo license detection"* ]]
+  [[ -z "$(get_output detected_license)" ]]
+}
+
+@test "repo license detection still runs without rules" {
+  setup_test_repo
+  set_env
+  printf 'SPDX-License-Identifier: Apache-2.0\n' > LICENSE
+  git add LICENSE && git commit -q -m license
+  add_file "a.py" "# Copyright (c) $(date +%Y) Analog Devices, Inc.
+# SPDX-License-Identifier: Apache-2.0"
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output detected_license)" == "Apache-2.0" ]]
+}
