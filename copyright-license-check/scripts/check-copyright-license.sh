@@ -55,6 +55,13 @@ fi
 DETECTED_LICENSE=""
 
 detect_repo_license() {
+  # Per-file rules decide what is valid, and such repos often have no single
+  # license (e.g. a LICENSE that only aggregates several), so don't guess one.
+  if (( ${#RULE_MATCH[@]} > 0 )); then
+    log_info "Skipping repo license detection: ${#RULE_MATCH[@]} license rule(s) configured."
+    return
+  fi
+
   local license_file=""
   for candidate in LICENSE LICENSE.md LICENSE.txt COPYING COPYING.md; do
     if [[ -f "${candidate}" ]]; then
@@ -115,8 +122,6 @@ detect_repo_license() {
     log_warn "Found ${license_file} but could not detect its SPDX identifier. Add 'SPDX-License-Identifier:' to the file or use .copyright-config.yml."
   fi
 }
-
-detect_repo_license
 
 # ── Load .copyright-config.yml ──────────────────────────────────
 # Simple YAML parser (no external dependencies). Supports:
@@ -254,6 +259,9 @@ load_copyright_config() {
 }
 
 load_copyright_config
+
+# Detection needs the config (rules), so it runs after loading it.
+detect_repo_license
 
 LICENSE_CHECK_ENABLED=false
 if [[ -n "${LICENSE_PATTERN}" ]] || (( ${#RULE_MATCH[@]} > 0 )); then

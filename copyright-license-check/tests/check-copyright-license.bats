@@ -1098,3 +1098,29 @@ all:"
   [[ "${status}" -eq 0 ]]
   [[ "$(get_output total_scanned)" == "2" ]]
 }
+
+@test "rules: repo license detection is skipped when rules are configured" {
+  setup_rules_repo
+  printf 'SPDX-License-Identifier: Apache-2.0\n' > LICENSE
+  git add LICENSE && git commit -q -m license
+  add_file "a.tcl" "## Copyright (C) $(date +%Y) Analog Devices, Inc.
+## Short identifier: ADIBSD
+$(rule_body '##')
+puts hi"
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "${output}" == *"Skipping repo license detection"* ]]
+  [[ -z "$(get_output detected_license)" ]]
+}
+
+@test "repo license detection still runs without rules" {
+  setup_test_repo
+  set_env
+  printf 'SPDX-License-Identifier: Apache-2.0\n' > LICENSE
+  git add LICENSE && git commit -q -m license
+  add_file "a.py" "# Copyright (c) $(date +%Y) Analog Devices, Inc.
+# SPDX-License-Identifier: Apache-2.0"
+  run bash "${SCRIPT}"
+  [[ "${status}" -eq 0 ]]
+  [[ "$(get_output detected_license)" == "Apache-2.0" ]]
+}
